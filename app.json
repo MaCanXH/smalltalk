@@ -38,11 +38,24 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Small Talk to use the microphone so the orb can react to your voice while you practise."
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "acd8bed2-dff1-4597-aaeb-02714e10c402"
+      }
+    },
+    "owner": "macanxhs-team"
   }
 }

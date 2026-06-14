@@ -1,98 +1,174 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useState } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { useSharedValue } from "react-native-reanimated";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { Orb } from "../../components/Orb";
+import { useTheme } from "../../context/ThemeContext";
+import { useAppData } from "../../context/AppDataContext";
+import { TOPICS } from "../../lib/ai/banks";
+import { spacing, radius, typography } from "../../styles/global";
+import type { TopicId } from "../../types";
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const { colors } = useTheme();
+  const { sessions } = useAppData();
+  const router = useRouter();
+  const idleAmp = useSharedValue(0);
+  const [topic, setTopic] = useState<TopicId>(TOPICS[0].id);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  const best = sessions.reduce((m, s) => Math.max(m, s.finalScore), 0);
+
+  const start = () => {
+    router.push({ pathname: "/session/active", params: { topic } });
+  };
+
+  return (
+    <SafeAreaView style={[styles.screen, { backgroundColor: colors.bg }]} edges={["top"]}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <Text style={[typography.tiny, { color: colors.accent }]}>SMALL TALK</Text>
+          <Text style={[typography.h1, { color: colors.text, marginTop: 4 }]}>
+            Ready to talk?
+          </Text>
+          <Text style={[typography.body, { color: colors.textDim, marginTop: 6 }]}>
+            Tap the orb and just start chatting. Three minutes, no script.
+          </Text>
+        </View>
+
+        <View style={styles.orbWrap}>
+          <Orb mode="idle" amplitude={idleAmp} color={colors.accent} onPress={start} />
+          <Text style={[styles.hint, { color: colors.textFaint }]}>
+            Tap to start · you lead the conversation
+          </Text>
+        </View>
+
+        <View style={styles.topicBlock}>
+          <Text style={[typography.small, { color: colors.textDim, marginBottom: spacing.sm }]}>
+            What do you want to talk about?
+          </Text>
+          <View style={styles.chips}>
+            {TOPICS.map((t) => {
+              const active = t.id === topic;
+              return (
+                <Pressable
+                  key={t.id}
+                  onPress={() => setTopic(t.id)}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: active ? colors.accent : colors.surface,
+                      borderColor: active ? colors.accent : colors.border,
+                    },
+                  ]}
+                >
+                  <Text style={{ fontSize: 15 }}>{t.emoji}</Text>
+                  <Text
+                    style={{
+                      color: active ? "#fff" : colors.textDim,
+                      fontWeight: "600",
+                      fontSize: 13,
+                    }}
+                  >
+                    {t.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {sessions.length > 0 && (
+          <View style={[styles.statRow]}>
+            <Stat label="Sessions" value={String(sessions.length)} colors={colors} />
+            <Stat label="Best score" value={String(best)} colors={colors} />
+            <Stat
+              label="Last vibe"
+              value={sessions[0].vibeEmoji}
+              colors={colors}
+            />
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  colors,
+}: {
+  label: string;
+  value: string;
+  colors: ReturnType<typeof useTheme>["colors"];
+}) {
+  return (
+    <View style={[styles.stat, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Text style={[typography.h3, { color: colors.text }]}>{value}</Text>
+      <Text style={[typography.tiny, { color: colors.textFaint, marginTop: 2 }]}>
+        {label.toUpperCase()}
+      </Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  screen: { flex: 1 },
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  header: {
+    paddingTop: spacing.lg,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  orbWrap: {
+    alignItems: "center",
+    marginTop: spacing.xl,
+    marginBottom: spacing.lg,
+  },
+  hint: {
+    marginTop: spacing.lg,
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  topicBlock: {
+    marginTop: spacing.md,
+  },
+  chips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  statRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.xl,
+  },
+  stat: {
+    flex: 1,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingVertical: spacing.md,
+    alignItems: "center",
   },
 });
