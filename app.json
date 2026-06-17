@@ -1,17 +1,23 @@
 {
   "expo": {
     "name": "smalltalk",
-    "slug": "smalltalk",
+    "slug": "test-vapi",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "smalltalk",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "newArchEnabled": true,
+      "supportsTablet": true,
+      "bundleIdentifier": "com.macanxhs.smalltalk",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Allow Small Talk to use the microphone for live AI voice practice.",
+        "UIBackgroundModes": ["voip"]
+      }
     },
     "android": {
+      "newArchEnabled": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -19,7 +25,24 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.CAMERA",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.FOREGROUND_SERVICE_CAMERA"
+      ],
+      "package": "com.macanxhs.smalltalk"
     },
     "web": {
       "output": "static",
@@ -44,6 +67,19 @@
         {
           "microphonePermission": "Allow Small Talk to use the microphone so the orb can react to your voice while you practise."
         }
+      ],
+      "@config-plugins/react-native-webrtc",
+      "@daily-co/config-plugin-rn-daily-js",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
       ]
     ],
     "experiments": {
@@ -53,7 +89,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "acd8bed2-dff1-4597-aaeb-02714e10c402"
+        "projectId": "9e69d0e6-a790-46ff-bf5b-1b42063fd73c"
       }
     },
     "owner": "macanxhs-team"

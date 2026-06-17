@@ -1,50 +1,130 @@
-# Welcome to your Expo app 👋
+# Smalltalk
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Smalltalk is an Expo app for AI voice conversation practice. It uses the Vapi React Native SDK for live voice calls and runs as a native development build, not in Expo Go.
 
-## Get started
+## Requirements
 
-1. Install dependencies
+- Node and npm
+- Xcode for iOS builds
+- Android Studio for Android builds
+- Vapi public key and assistant ID
 
-   ```bash
-   npm install
-   ```
+## Environment
 
-2. Start the app
+Create a local `.env` file:
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```sh
+EXPO_PUBLIC_VAPI_PUBLIC_KEY=pk_live_replace_with_dashboard_public_key
+EXPO_PUBLIC_VAPI_ASSISTANT_ID=asst_replace_with_dashboard_assistant_id
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Install dependencies
 
-## Learn more
+Have to use --legacy-peer-deps because VAPI/Daily peer dependency conflict issue
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npm install --legacy-peer-deps
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Local development
 
-## Join the community
+Build and install a local development client:
 
-Join our community of developers creating universal apps.
+```bash
+npx expo run:ios
+# or
+npx expo run:android
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Start Metro for the dev client:
+
+```bash
+npx expo start --dev-client
+```
+
+If device discovery is unreliable, use:
+
+```bash
+npx expo start --dev-client --tunnel
+```
+
+Rebuild the native app after changing native dependencies or `app.json`.
+
+## Physical iPhone testing
+
+For Vapi voice testing, prefer a physical iPhone over the simulator.
+
+Typical flow:
+
+```bash
+npx expo run:ios --device
+npx expo start --dev-client
+```
+
+Requirements:
+
+- iPhone connected to your Mac for the first install
+- trusted computer pairing
+- Developer Mode enabled on the phone if prompted
+- Apple account configured in Xcode for signing
+
+## EAS builds
+
+This repo already includes EAS profiles in `eas.json`.
+
+Development builds:
+
+```bash
+npx eas-cli@latest build --platform android --profile development
+npx eas-cli@latest build --platform ios --profile development
+npx eas-cli@latest build --platform ios --profile development-simulator
+```
+
+Preview build for sharing:
+
+```bash
+npx eas-cli@latest build --platform ios --profile preview
+```
+
+## Sharing with testers
+
+For iOS, the `preview` profile uses internal distribution. That means the tester's iPhone must be registered for ad hoc provisioning before install.
+
+Typical flow:
+
+```bash
+npx eas-cli@latest device:create
+npx eas-cli@latest build --platform ios --profile preview
+```
+
+Then send the EAS build URL to the tester.
+
+## Dependency note: Vapi and Daily peer mismatch
+
+This project intentionally uses a newer Daily native stack than `@vapi-ai/react-native@0.3.0` declares in its peer dependencies:
+
+- installed: `@daily-co/react-native-daily-js@0.86.0`
+- installed: `@daily-co/react-native-webrtc@124.0.6-daily.1`
+- Vapi peer metadata still points at the older `0.78.0` / `118.0.3-daily.4` line
+
+This is deliberate. The older Daily stack pulls an older `daily-js` version that caused runtime compatibility problems in this app.
+
+Practical impact:
+
+- `npm install <package>` may fail with `ERESOLVE`
+- local tool installs inside this repo can fail because npm re-checks the dependency graph
+
+Recommended workflow:
+
+```bash
+npx eas-cli@latest <command>
+npx expo install <package>
+```
+
+If you must install a non-Expo package and npm blocks on peer resolution:
+
+```bash
+npm install <package> --legacy-peer-deps
+```
+
+Avoid adding `eas-cli` as a local dependency in this repo.
