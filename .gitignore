@@ -9,6 +9,13 @@ dist/
 web-build/
 expo-env.d.ts
 
+# EAS / native build artifacts
+*.aab
+*.apk
+*.ipa
+*.app
+*.xcarchive
+
 # Native
 .kotlin/
 *.orig.*
@@ -25,16 +32,26 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+pnpm-debug.*
+*.log
 
 # macOS
 .DS_Store
 *.pem
 
 # local env files
+.env
+.env.*
 .env*.local
+!.env.example
+!.env.*.example
 
 # typescript
 *.tsbuildinfo
+
+# test / coverage output
+coverage/
+.nyc_output/
 
 app-example
 
