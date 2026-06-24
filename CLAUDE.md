@@ -4,28 +4,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this app is
 
-Small Talk is an **offline, client-side-only** conversation trainer built with Expo Router (SDK 54), designed to run inside **Expo Go**. The offline + Expo Go constraints drive every major technical choice — there is no backend, no network, and no real LLM. Do not introduce server infrastructure (`express`, server-side `axios`) or any cloud/on-device LLM: both were deliberately ruled out (cloud needs network, on-device LLM needs a custom dev build).
+Small Talk is a **conversation trainer** built with Expo Router (SDK 54). The user holds a live, real-time voice conversation with an AI partner for ~3 minutes, then gets a scored transcript.
 
-The "AI" is a local rule-based illusion:
-- **AI replies**: `lib/ai/engine.ts` (`DialogEngine`) mixes topic banks, keyword reactions, stall phrases, and follow-up questions from `lib/ai/banks.ts`. No model.
-- **User's voice**: the mic is genuinely recorded + metered via `expo-audio` (`lib/speech/useVoiceRecorder.ts`) only to drive the orb's reactive visuals. The transcript **text** is *simulated* from topic banks — there is no offline transcription in Expo Go. This "Wizard of Oz" approach is intentional.
-- **AI voice**: real on-device TTS via `expo-speech` (`lib/speech/tts.ts`). No subtitles are shown during a live session by design.
-- **Scoring**: `lib/ai/scoring.ts` derives scores deterministically from real transcript signals (turn count, word variety, slang markers, time used) — explainable, not graded by a model.
+It runs as a **native development build** (`expo-dev-client`), launched on an Android emulator / device — **not Expo Go**. The realtime voice stack (`@vapi-ai/react-native` over `@daily-co/react-native-webrtc`) ships custom native code, so Expo Go cannot load it. A network connection and Vapi credentials are required for a live session.
+
+The AI voice is **real**, via Vapi (a hosted realtime voice-agent service):
+- **`lib/ai/vapi.ts`** wraps the `Vapi` client: reads config from env, builds per-topic assistant overrides (`maxDurationSeconds`, topic variable values), and normalizes errors.
+- **`app/session/active.tsx`** is the live session — see Architecture. It subscribes to Vapi events and drives everything from them.
+- **`lib/ai/vapiTranscript.ts`** turns Vapi `transcript` / `conversation-update` messages into deduplicated `{ speaker, text }` turns (final transcripts only, identity-keyed to drop repeats).
+- **Scoring** (`lib/ai/scoring.ts`, `buildResult`) is still deterministic and explainable — derived from the captured transcript (turn count, word variety, slang markers, time used), never graded by a model.
+
+**Required env vars** (prefix `EXPO_PUBLIC_` so they reach the client; set before starting Metro):
+`EXPO_PUBLIC_VAPI_PUBLIC_KEY`, `EXPO_PUBLIC_VAPI_ASSISTANT_ID`. Without both, the live session shows a "Missing Vapi configuration" error instead of connecting.
+
+**Legacy from the earlier offline-mock prototype** (still in the tree, no longer wired into the live session — don't extend them as if they were the AI):
+`lib/ai/engine.ts` (`DialogEngine`) and `lib/speech/useVoiceRecorder.ts`. Still live: `lib/ai/banks.ts` (the topic catalog, used to seed Vapi overrides + scoring) and `lib/speech/tts.ts` (`speak`, used only for the voice preview in Settings).
 
 ## Commands
 
 ```bash
-npm start            # expo start (dev server + QR for Expo Go)
-npm run android      # expo start --android
-npm run ios          # expo start --ios
+npm start            # expo start — Metro dev server; open in the installed dev build (not Expo Go)
+npm run android      # expo run:android — native Gradle build, install + launch on emulator/device
+npm run ios          # expo run:ios
 npm run web          # expo start --web
 npm run lint         # expo lint (ESLint, eslint-config-expo flat config)
-npm run reset-project # scripts/reset-project.js — scaffolding reset; not needed for normal dev
+npm run test:unit    # node --test via tsx over lib/**/*.test.ts
 ```
 
-There is no test runner configured. Type-check with `npx tsc --noEmit`.
+Run a single test file: `node --import tsx --test lib/ai/__tests__/vapiTranscript.test.ts`.
+Type-check: `npx tsc --noEmit`.
 
-**Typed routes gotcha:** `experiments.typedRoutes` is on, so `tsc` depends on generated route types in `.expo/types`. After adding/renaming routes (or on a fresh checkout) run `expo start` once to regenerate them before expecting a clean type-check.
+### Native build notes
+
+- The `android/` and `ios/` folders are **generated and gitignored** (`/android`, `/ios` in `.gitignore`). On a fresh checkout they won't exist — generate with `npx expo prebuild --platform android --clean` before `npm run android`. Native config lives in `app.json` (plugins, permissions, `expo-build-properties` → `minSdkVersion 24`), not in hand-edited native files; re-running prebuild overwrites them.
+- The Gradle build needs the Android SDK discoverable via `ANDROID_HOME` (or `android/local.properties` with `sdk.dir=...`). The first build downloads the Gradle distribution + JDK 17 + dependencies (several GB) into `~/.gradle`.
+- `.npmrc` sets `legacy-peer-deps=true` — required for installs to resolve the Daily/WebRTC/Vapi peer-dependency graph. Keep it; `npm install` will fail without it.
+
+**Typed routes gotcha:** `experiments.typedRoutes` is on, so `tsc` depends on generated route types in `.expo/types`. After adding/renaming routes (or on a fresh checkout) run `expo start` (or prebuild) once to regenerate them before expecting a clean type-check.
 
 ## Architecture
 
@@ -37,12 +52,12 @@ State flows through two React Context providers, nested in `app/_layout.tsx` (`T
 **All persistence goes through `lib/storage.ts`** — a typed AsyncStorage wrapper. Screens/contexts call the domain helpers (`listSessions`, `saveProfile`, etc.); never call AsyncStorage directly. Keys are namespaced under `@smalltalk/*`.
 
 **Routing** (`expo-router`, file-based, in `app/`):
-- `app/(tabs)/` — 4 tabs: `index` (Talk/mic), `library`, `profile`, `settings`. (Spec said 3; Talk needs its own reachable tab.)
-- `app/session/active.tsx` — the live conversation screen. It's a small state machine (`idle → speaking → thinking → listening`) orchestrating `DialogEngine`, the recorder, and TTS; tapping the orb advances turns. Gestures disabled so users can't swipe out mid-session.
+- `app/(tabs)/` — 4 tabs: `index` (Talk/topic picker), `library`, `profile`, `settings`.
+- `app/session/active.tsx` — the live conversation screen. It is **fully event-driven by the Vapi client**, not by user taps. A single mount effect creates the client, starts the call with the topic's overrides, and maps Vapi events to UI: `call-start`/`speech-start`/`speech-end` move the orb mode (`idle → thinking → listening/speaking`); `volume-level` drives the orb's Reanimated `amplitude`; `message` appends transcript turns and detects end. A 180s countdown and the "End conversation" button both `scheduleFinish`, which stops the client, runs `buildResult`, persists the session, and routes to results. The cleanup path also saves if the user leaves mid-call with any captured user turns. Gestures are disabled so users can't swipe out mid-session.
 - `app/session/[id].tsx` — post-session results.
 
 **Shared modules:**
-- `components/Orb.tsx` — the central animated reactive orb (the chosen UI direction); driven by a Reanimated shared `amplitude` value from the recorder.
+- `components/Orb.tsx` — the central animated reactive orb; driven by a Reanimated shared `amplitude` value (fed from Vapi `volume-level`).
 - `styles/global.ts` — design tokens: `makeColors(accent)`, `spacing`, `radius`, `typography`, `layout`, `ACCENT_PRESETS`. Build dynamic styles from these; static layout uses `StyleSheet.create`.
 - `types/index.ts` — all shared types (imported as `../../types`). Note `@/*` path alias maps to repo root.
 

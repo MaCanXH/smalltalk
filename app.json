@@ -69,7 +69,13 @@
         }
       ],
       "@config-plugins/react-native-webrtc",
-      "@daily-co/config-plugin-rn-daily-js",
+      [
+        "@daily-co/config-plugin-rn-daily-js",
+        {
+          "enableCamera": false,
+          "enableScreenShare": false
+        }
+      ],
       [
         "expo-build-properties",
         {
