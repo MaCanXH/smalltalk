@@ -1,141 +1,79 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  getTranscriptKey,
-  getVapiTranscriptIdentityKey,
-  normalizeVapiTranscriptMessage,
-} from "../vapiTranscript";
+import { normalizeVapiConversation } from "../vapiTranscript";
 
-describe("normalizeVapiTranscriptMessage", () => {
-  it("keeps final user transcript messages", () => {
+describe("normalizeVapiConversation", () => {
+  it("rebuilds the full dialog from the messages array with secondsFromStart", () => {
     assert.deepEqual(
-      normalizeVapiTranscriptMessage({
-        type: "transcript",
-        transcriptType: "final",
-        role: "user",
-        transcript: "I went for brunch this weekend.",
+      normalizeVapiConversation({
+        type: "conversation-update",
+        messages: [
+          { role: "system", message: "You are a partner." },
+          { role: "bot", message: "How was your weekend?", secondsFromStart: 1.2 },
+          { role: "user", message: "Pretty good, I went hiking.", secondsFromStart: 4.8 },
+        ],
       }),
-      { speaker: "user", text: "I went for brunch this weekend." }
+      [
+        { speaker: "ai", text: "How was your weekend?", t: 1.2 },
+        { speaker: "user", text: "Pretty good, I went hiking.", t: 4.8 },
+      ]
     );
   });
 
-  it("keeps final assistant transcript messages", () => {
+  it("falls back to the OpenAI conversation array when messages is absent", () => {
     assert.deepEqual(
-      normalizeVapiTranscriptMessage({
-        type: "transcript",
-        transcriptType: "final",
-        role: "assistant",
-        transcript: "That sounds like a great weekend.",
-      }),
-      { speaker: "ai", text: "That sounds like a great weekend." }
-    );
-  });
-
-  it("ignores partial transcript messages", () => {
-    assert.equal(
-      normalizeVapiTranscriptMessage({
-        type: "transcript",
-        transcriptType: "partial",
-        role: "user",
-        transcript: "I went",
-      }),
-      null
-    );
-  });
-
-  it("ignores non-transcript messages", () => {
-    assert.equal(
-      normalizeVapiTranscriptMessage({
-        type: "status-update",
-        status: "started",
-      }),
-      null
-    );
-  });
-
-  it("supports conversation-update messages with one final newest entry", () => {
-    assert.deepEqual(
-      normalizeVapiTranscriptMessage({
+      normalizeVapiConversation({
         type: "conversation-update",
         conversation: [
-          { role: "user", content: "Older text" },
           { role: "assistant", content: "Newest text" },
+          { role: "user", content: "And mine" },
         ],
       }),
-      { speaker: "ai", text: "Newest text" }
+      [
+        { speaker: "ai", text: "Newest text", t: 0 },
+        { speaker: "user", text: "And mine", t: 0 },
+      ]
     );
   });
 
-  it("does not fall back to older conversation entries", () => {
-    assert.equal(
-      normalizeVapiTranscriptMessage({
+  it("derives offsets from `time` relative to the first timestamped entry", () => {
+    assert.deepEqual(
+      normalizeVapiConversation({
         type: "conversation-update",
-        conversation: [
-          { role: "user", content: "Older valid text" },
-          { role: "system", content: "Newest unsupported text" },
+        messages: [
+          { role: "bot", message: "First", time: 1000 },
+          { role: "user", message: "Second", time: 3500 },
         ],
       }),
-      null
+      [
+        { speaker: "ai", text: "First", t: 0 },
+        { speaker: "user", text: "Second", t: 2.5 },
+      ]
     );
   });
 
-  it("does not skip malformed newest conversation entries", () => {
-    assert.equal(
-      normalizeVapiTranscriptMessage({
+  it("skips malformed, empty, and unsupported-role entries", () => {
+    assert.deepEqual(
+      normalizeVapiConversation({
         type: "conversation-update",
-        conversation: [{ role: "user", content: "Older valid text" }, null],
+        messages: [
+          null,
+          { role: "tool_calls", message: "{}" },
+          { role: "user", message: "   " },
+          { role: "user", message: "Real line", secondsFromStart: 2 },
+        ],
       }),
-      null
-    );
-  });
-});
-
-describe("getTranscriptKey", () => {
-  it("creates stable duplicate keys", () => {
-    assert.equal(
-      getTranscriptKey({ speaker: "user", text: "  Hello there  " }),
-      "user:hello there"
-    );
-  });
-});
-
-describe("getVapiTranscriptIdentityKey", () => {
-  it("uses Vapi message identity when present", () => {
-    const turn = { speaker: "user" as const, text: "  Yes  " };
-
-    assert.equal(
-      getVapiTranscriptIdentityKey(
-        { type: "transcript", id: "msg_1", role: "user", transcript: "Yes" },
-        turn
-      ),
-      "user:yes:msg_1"
+      [{ speaker: "user", text: "Real line", t: 2 }]
     );
   });
 
-  it("uses the newest conversation entry identity", () => {
-    const turn = { speaker: "ai" as const, text: "Yes" };
-
+  it("ignores non conversation-update messages", () => {
     assert.equal(
-      getVapiTranscriptIdentityKey(
-        {
-          type: "conversation-update",
-          conversation: [
-            { role: "user", id: "old", content: "Older" },
-            { role: "assistant", id: "new", content: "Yes" },
-          ],
-        },
-        turn
-      ),
-      "ai:yes:new"
-    );
-  });
-
-  it("does not invent an identity from text alone", () => {
-    assert.equal(
-      getVapiTranscriptIdentityKey(
-        { type: "transcript", role: "user", transcript: "Yes" },
-        { speaker: "user", text: "Yes" }
-      ),
+      normalizeVapiConversation({
+        type: "transcript",
+        role: "user",
+        transcript: "Hi",
+      }),
       null
     );
   });

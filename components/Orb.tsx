@@ -19,7 +19,8 @@ interface OrbProps {
   amplitude: SharedValue<number>;
   color: string;
   size?: number;
-  icon?: keyof typeof Ionicons.glyphMap;
+  /** Icon shown in the core, or `null` for a clean icon-less orb. */
+  icon?: keyof typeof Ionicons.glyphMap | null;
   onPress?: () => void;
   disabled?: boolean;
 }
@@ -65,8 +66,10 @@ export function Orb({
   const coreStyle = useAnimatedStyle(() => {
     "worklet";
     let scale = 1 + pulse.value * 0.04; // idle breathing
+    // Listening + speaking both swell with the live voice level (amplitude):
+    // the user's mic when listening, the AI's output when it's talking.
     if (modeV.value === 1) scale = 1 + amplitude.value * 0.4;
-    else if (modeV.value === 2) scale = 1 + pulse.value * 0.13;
+    else if (modeV.value === 2) scale = 1 + amplitude.value * 0.45;
     else if (modeV.value === 3) scale = 1 + pulse.value * 0.07;
     return { transform: [{ scale }] };
   });
@@ -74,14 +77,22 @@ export function Orb({
   const outer = useAnimatedStyle(() => {
     "worklet";
     const drive =
-      modeV.value === 1 ? amplitude.value : modeV.value === 0 ? pulse.value * 0.5 : pulse.value;
+      modeV.value === 1 || modeV.value === 2
+        ? amplitude.value
+        : modeV.value === 0
+          ? pulse.value * 0.5
+          : pulse.value;
     return { transform: [{ scale: 1.05 + drive * 0.55 }], opacity: 0.05 + drive * 0.28 };
   });
 
   const mid = useAnimatedStyle(() => {
     "worklet";
     const drive =
-      modeV.value === 1 ? amplitude.value : modeV.value === 0 ? pulse.value * 0.5 : pulse.value;
+      modeV.value === 1 || modeV.value === 2
+        ? amplitude.value
+        : modeV.value === 0
+          ? pulse.value * 0.5
+          : pulse.value;
     return { transform: [{ scale: 1.0 + drive * 0.4 }], opacity: 0.05 + drive * 0.28 };
   });
 
@@ -109,7 +120,7 @@ export function Orb({
         end={{ x: 0.9, y: 1 }}
         style={[styles.core, coreStyle]}
       >
-        <Ionicons name={icon} size={size * 0.26} color="#fff" />
+        {icon ? <Ionicons name={icon} size={size * 0.26} color="#fff" /> : null}
       </AGradient>
     </Pressable>
   );

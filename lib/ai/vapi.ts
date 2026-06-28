@@ -21,6 +21,8 @@ export interface VapiClient {
     overrides?: Record<string, unknown>,
   ): Promise<unknown>;
   stop(): void;
+  /** Underlying Daily call object (used for the local mic-level meter). */
+  getDailyCallObject(): unknown;
 }
 
 export function readVapiConfig(): VapiConfig | null {

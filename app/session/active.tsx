@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { AudioModule } from "expo-audio";
 import { useSharedValue, withTiming } from "react-native-reanimated";
 
 import { Orb, type OrbMode } from "../../components/Orb";
@@ -18,15 +19,24 @@ import {
   type VapiClient,
 } from "../../lib/ai/vapi";
 import {
-  getTranscriptKey,
-  getVapiTranscriptIdentityKey,
   isVapiEndedMessage,
-  normalizeVapiTranscriptMessage,
+  normalizeVapiConversation,
 } from "../../lib/ai/vapiTranscript";
 import { spacing, radius, typography } from "../../styles/global";
 import type { DialogTurn, TopicId } from "../../types";
 
 const SESSION_SECONDS = 180;
+
+/** Daily audio level is a small RMS-ish value; scale it up like Vapi does. */
+const LOCAL_LEVEL_GAIN = 0.15;
+
+type LocalAudioEvent = { audioLevel: number };
+type DailyAudioCall = {
+  startLocalAudioLevelObserver: (interval?: number) => Promise<void> | void;
+  stopLocalAudioLevelObserver: () => void;
+  on: (event: "local-audio-level", listener: (ev: LocalAudioEvent) => void) => unknown;
+  off: (event: "local-audio-level", listener: (ev: LocalAudioEvent) => void) => unknown;
+};
 
 type SessionMode = OrbMode;
 const STATUS: Record<SessionMode, string> = {
@@ -49,8 +59,9 @@ export default function ActiveSession() {
 
   const amplitude = useSharedValue(0);
   const vapiRef = useRef<VapiClient | null>(null);
-  const seenTranscriptIdentityKeysRef = useRef(new Set<string>());
-  const lastFallbackTranscriptRef = useRef<{ key: string; receivedAt: number } | null>(null);
+  const modeRef = useRef<SessionMode>("idle");
+  const dailyAudioRef = useRef<DailyAudioCall | null>(null);
+  const localAudioHandlerRef = useRef<((ev: LocalAudioEvent) => void) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
   const dialogRef = useRef<DialogTurn[]>([]);
@@ -82,33 +93,43 @@ export default function ActiveSession() {
     topicIdRef.current = topicId;
   }, [topicId]);
 
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
+  const stopLocalAudioMeter = useCallback(() => {
+    const daily = dailyAudioRef.current;
+    const handler = localAudioHandlerRef.current;
+    dailyAudioRef.current = null;
+    localAudioHandlerRef.current = null;
+    if (!daily) return;
+    try {
+      if (handler) daily.off("local-audio-level", handler);
+      daily.stopLocalAudioLevelObserver();
+    } catch {
+      // Ignore best-effort observer teardown failures.
+    }
+  }, []);
+
   const haptic = useCallback(() => {
     if (settings.hapticsEnabled) {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   }, [settings.hapticsEnabled]);
 
-  const appendTranscriptMessage = useCallback((message: unknown) => {
-    const turn = normalizeVapiTranscriptMessage(message);
-    if (!turn) return;
-
-    const identityKey = getVapiTranscriptIdentityKey(message, turn);
-    if (identityKey) {
-      if (seenTranscriptIdentityKeysRef.current.has(identityKey)) return;
-      seenTranscriptIdentityKeysRef.current.add(identityKey);
-    } else {
-      const key = getTranscriptKey(turn);
-      const receivedAt = Date.now();
-      const last = lastFallbackTranscriptRef.current;
-      if (last?.key === key && receivedAt - last.receivedAt < 250) return;
-      lastFallbackTranscriptRef.current = { key, receivedAt };
-    }
-
-    dialogRef.current.push({
+  const syncTranscriptFromMessage = useCallback((message: unknown) => {
+    const turns = normalizeVapiConversation(message);
+    // Only `conversation-update` messages resolve; everything else is ignored.
+    if (!turns) return;
+    // The update carries the whole conversation, so we replace (not append)
+    // the dialog with Vapi's canonical, de-duplicated turns. The length guard
+    // keeps a transient shorter update from truncating a fuller transcript.
+    if (turns.length < dialogRef.current.length) return;
+    dialogRef.current = turns.map((turn) => ({
       speaker: turn.speaker,
       text: turn.text,
-      t: elapsedRef.current,
-    });
+      t: Math.round(turn.t),
+    }));
   }, []);
 
   const onOrbPress = useCallback(() => {
@@ -139,6 +160,7 @@ export default function ActiveSession() {
     setEnding(true);
     amplitude.value = withTiming(0, { duration: 120 });
 
+    stopLocalAudioMeter();
     const client = vapiRef.current;
     vapiRef.current = null;
     stopClient(client);
@@ -174,7 +196,7 @@ export default function ActiveSession() {
         `The voice call ended, but the transcript could not be saved. ${summarizeVapiError(err)}`
       );
     }
-  }, [amplitude, clearFinishTimer, stopClient]);
+  }, [amplitude, clearFinishTimer, stopClient, stopLocalAudioMeter]);
 
   useEffect(() => {
     finishRef.current = finish;
@@ -199,8 +221,6 @@ export default function ActiveSession() {
     finishScheduledRef.current = false;
     clearFinishTimer();
     dialogRef.current = [];
-    seenTranscriptIdentityKeysRef.current = new Set<string>();
-    lastFallbackTranscriptRef.current = null;
     elapsedRef.current = 0;
     setMode("idle");
     setRemaining(SESSION_SECONDS);
@@ -227,9 +247,32 @@ export default function ActiveSession() {
     const client = createVapiClient(config.publicKey);
     vapiRef.current = client;
 
+    const startLocalAudioMeter = () => {
+      let daily: DailyAudioCall | null = null;
+      try {
+        daily = client.getDailyCallObject() as DailyAudioCall | null;
+      } catch {
+        daily = null;
+      }
+      if (!daily) return;
+      dailyAudioRef.current = daily;
+      const onLocal = (ev: LocalAudioEvent) => {
+        if (!active || finishedRef.current || finishScheduledRef.current) return;
+        // Only drive the orb from the user's mic during their turn; the AI's
+        // turn is driven by the assistant `volume-level` event instead.
+        if (modeRef.current !== "listening") return;
+        const level = Math.max(0, Math.min(1, (ev?.audioLevel ?? 0) / LOCAL_LEVEL_GAIN));
+        amplitude.value = withTiming(level, { duration: 90 });
+      };
+      localAudioHandlerRef.current = onLocal;
+      daily.on("local-audio-level", onLocal);
+      void Promise.resolve(daily.startLocalAudioLevelObserver(100)).catch(() => undefined);
+    };
+
     client.on("call-start", () => {
       if (!active || finishedRef.current || finishScheduledRef.current) return;
       setMode("listening");
+      startLocalAudioMeter();
     });
 
     client.on("call-end", () => {
@@ -250,13 +293,15 @@ export default function ActiveSession() {
 
     client.on("volume-level", (volume) => {
       if (!active || finishedRef.current || finishScheduledRef.current) return;
+      // Assistant output level — only relevant while the AI is speaking.
+      if (modeRef.current !== "speaking") return;
       const clamped = Math.max(0, Math.min(1, volume));
       amplitude.value = withTiming(clamped, { duration: 90 });
     });
 
     client.on("message", (message) => {
       if (!active || finishedRef.current) return;
-      appendTranscriptMessage(message);
+      syncTranscriptFromMessage(message);
       if (isVapiEndedMessage(message)) {
         scheduleFinish(true);
       }
@@ -277,6 +322,7 @@ export default function ActiveSession() {
       setError(summarizeVapiError(err));
       amplitude.value = withTiming(0, { duration: 120 });
 
+      stopLocalAudioMeter();
       const currentClient = vapiRef.current;
       vapiRef.current = null;
       stopClient(currentClient);
@@ -286,6 +332,16 @@ export default function ActiveSession() {
       if (!active || finishedRef.current) return;
       setMode("thinking");
       try {
+        // RECORD_AUDIO is a runtime permission on Android (and iOS prompts on
+        // first use). Without it the WebRTC mic track stays silent: the call
+        // connects and the AI talks, but Vapi never receives the user's voice.
+        const mic = await AudioModule.requestRecordingPermissionsAsync();
+        if (!active || finishedRef.current || finishScheduledRef.current) return;
+        if (!mic.granted) {
+          throw new Error(
+            "Microphone access is off, so Vapi can't hear you. Enable the microphone permission for Small Talk in system settings, then try again."
+          );
+        }
         const started = await client.start(
           config.assistantId,
           buildAssistantOverrides(topic)
@@ -303,6 +359,7 @@ export default function ActiveSession() {
         setEnding(false);
         setError(summarizeVapiError(err));
         amplitude.value = withTiming(0, { duration: 120 });
+        stopLocalAudioMeter();
         vapiRef.current = null;
         stopClient(client);
       }
@@ -321,15 +378,17 @@ export default function ActiveSession() {
       finishScheduledRef.current = false;
       clearFinishTimer();
       amplitude.value = withTiming(0, { duration: 120 });
+      stopLocalAudioMeter();
       vapiRef.current = null;
       stopClient(client);
     };
   }, [
     amplitude,
-    appendTranscriptMessage,
+    syncTranscriptFromMessage,
     clearFinishTimer,
     scheduleFinish,
     stopClient,
+    stopLocalAudioMeter,
     topic,
   ]);
 
@@ -400,8 +459,8 @@ export default function ActiveSession() {
         <Orb
           mode={mode}
           amplitude={amplitude}
-          color={colors.accent}
-          icon={mode === "speaking" ? "volume-high" : "mic"}
+          color={mode === "listening" ? colors.danger : colors.accent}
+          icon={mode === "listening" ? null : mode === "speaking" ? "volume-high" : "mic"}
           onPress={onOrbPress}
           disabled={mode === "thinking" || mode === "idle" || ending}
         />

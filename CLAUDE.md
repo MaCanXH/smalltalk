@@ -11,14 +11,13 @@ It runs as a **native development build** (`expo-dev-client`), launched on an An
 The AI voice is **real**, via Vapi (a hosted realtime voice-agent service):
 - **`lib/ai/vapi.ts`** wraps the `Vapi` client: reads config from env, builds per-topic assistant overrides (`maxDurationSeconds`, topic variable values), and normalizes errors.
 - **`app/session/active.tsx`** is the live session — see Architecture. It subscribes to Vapi events and drives everything from them.
-- **`lib/ai/vapiTranscript.ts`** turns Vapi `transcript` / `conversation-update` messages into deduplicated `{ speaker, text }` turns (final transcripts only, identity-keyed to drop repeats).
+- **`lib/ai/vapiTranscript.ts`** rebuilds the full dialog from each Vapi `conversation-update` message (`normalizeVapiConversation`) — the message carries the entire conversation, so the session **replaces** (not appends) its transcript with Vapi's canonical, already-deduplicated turns. Prefers the timestamped `messages` array (`secondsFromStart`/`time`), falls back to the OpenAI-format `conversation` array. Also exposes `isVapiEndedMessage`.
 - **Scoring** (`lib/ai/scoring.ts`, `buildResult`) is still deterministic and explainable — derived from the captured transcript (turn count, word variety, slang markers, time used), never graded by a model.
 
 **Required env vars** (prefix `EXPO_PUBLIC_` so they reach the client; set before starting Metro):
 `EXPO_PUBLIC_VAPI_PUBLIC_KEY`, `EXPO_PUBLIC_VAPI_ASSISTANT_ID`. Without both, the live session shows a "Missing Vapi configuration" error instead of connecting.
 
-**Legacy from the earlier offline-mock prototype** (still in the tree, no longer wired into the live session — don't extend them as if they were the AI):
-`lib/ai/engine.ts` (`DialogEngine`) and `lib/speech/useVoiceRecorder.ts`. Still live: `lib/ai/banks.ts` (the topic catalog, used to seed Vapi overrides + scoring) and `lib/speech/tts.ts` (`speak`, used only for the voice preview in Settings).
+**`lib/ai/banks.ts`** holds the **topic catalog** (`TOPICS`/`getTopic` — `{ id, label, emoji }`, used to seed Vapi overrides + label results) and the **scoring word-banks** (`STALL_PHRASES`, `WORD_UPGRADES`, `SLANG_MARKERS`, consumed only by `scoring.ts`). There is no scripted dialogue — the conversation is live via Vapi. `lib/speech/tts.ts` (`speak`) is still live, used only for the voice preview in Settings. (The earlier offline-mock prototype — `lib/ai/engine.ts` `DialogEngine` and `lib/speech/useVoiceRecorder.ts` — has been removed.)
 
 ## Commands
 
@@ -52,12 +51,12 @@ State flows through two React Context providers, nested in `app/_layout.tsx` (`T
 **All persistence goes through `lib/storage.ts`** — a typed AsyncStorage wrapper. Screens/contexts call the domain helpers (`listSessions`, `saveProfile`, etc.); never call AsyncStorage directly. Keys are namespaced under `@smalltalk/*`.
 
 **Routing** (`expo-router`, file-based, in `app/`):
-- `app/(tabs)/` — 4 tabs: `index` (Talk/topic picker), `library`, `profile`, `settings`.
-- `app/session/active.tsx` — the live conversation screen. It is **fully event-driven by the Vapi client**, not by user taps. A single mount effect creates the client, starts the call with the topic's overrides, and maps Vapi events to UI: `call-start`/`speech-start`/`speech-end` move the orb mode (`idle → thinking → listening/speaking`); `volume-level` drives the orb's Reanimated `amplitude`; `message` appends transcript turns and detects end. A 180s countdown and the "End conversation" button both `scheduleFinish`, which stops the client, runs `buildResult`, persists the session, and routes to results. The cleanup path also saves if the user leaves mid-call with any captured user turns. Gestures are disabled so users can't swipe out mid-session.
+- `app/(tabs)/` — 4 tabs: `index` (Talk/topic picker), `library`, `profile`, `settings`. The layout uses **Material Top Tabs** (`@react-navigation/material-top-tabs` + `react-native-pager-view`) via `withLayoutContext`, with `tabBarPosition="bottom"` — a bottom tab bar that also **swipes** between tabs. Adding/removing native deps like `react-native-pager-view` requires a native rebuild.
+- `app/session/active.tsx` — the live conversation screen. It is **fully event-driven by the Vapi client**, not by user taps. A single mount effect creates the client, starts the call with the topic's overrides, and maps Vapi events to UI: `call-start`/`speech-start`/`speech-end` move the orb mode (`idle → thinking → listening/speaking`); `volume-level` (assistant) and a Daily local audio-level observer (user mic) drive the orb's Reanimated `amplitude` per turn; `message` rebuilds the transcript from each `conversation-update` (replace, via `normalizeVapiConversation`) and detects end. A 180s countdown and the "End conversation" button both `scheduleFinish`, which stops the client, runs `buildResult`, persists the session, and routes to results. The cleanup path also saves if the user leaves mid-call with any captured user turns. Gestures are disabled so users can't swipe out mid-session.
 - `app/session/[id].tsx` — post-session results.
 
 **Shared modules:**
-- `components/Orb.tsx` — the central animated reactive orb; driven by a Reanimated shared `amplitude` value (fed from Vapi `volume-level`).
+- `components/Orb.tsx` — the central animated reactive orb; driven by a Reanimated shared `amplitude` value. In-call it's fed from the assistant `volume-level` while the AI speaks and from a Daily local audio-level observer while the user speaks (the user-turn orb is red and icon-less). Supports `icon={null}` for a clean orb.
 - `styles/global.ts` — design tokens: `makeColors(accent)`, `spacing`, `radius`, `typography`, `layout`, `ACCENT_PRESETS`. Build dynamic styles from these; static layout uses `StyleSheet.create`.
 - `types/index.ts` — all shared types (imported as `../../types`). Note `@/*` path alias maps to repo root.
 
