@@ -156,7 +156,8 @@ function makeId(): string {
 export function buildResult(
   topicId: TopicId,
   dialog: DialogTurn[],
-  durationSec: number
+  durationSec: number,
+  labelOverride?: string
 ): SessionResult {
   const topic = getTopic(topicId);
   const stats = analyseUser(dialog);
@@ -170,7 +171,7 @@ export function buildResult(
     id: makeId(),
     date: new Date().toISOString(),
     topic: topicId,
-    topicLabel: topic.label,
+    topicLabel: labelOverride?.trim() || topic.label,
     durationSec,
     indices,
     finalScore,

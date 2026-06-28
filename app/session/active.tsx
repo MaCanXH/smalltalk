@@ -9,7 +9,6 @@ import { useSharedValue, withTiming } from "react-native-reanimated";
 import { Orb, type OrbMode } from "../../components/Orb";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppData } from "../../context/AppDataContext";
-import { getTopic } from "../../lib/ai/banks";
 import { buildResult } from "../../lib/ai/scoring";
 import {
   buildAssistantOverrides,
@@ -29,6 +28,13 @@ const SESSION_SECONDS = 180;
 
 /** Daily audio level is a small RMS-ish value; scale it up like Vapi does. */
 const LOCAL_LEVEL_GAIN = 0.15;
+
+/**
+ * Sessions are now driven by a free-form headline, not the topic catalog, but
+ * scoring still wants a TopicId. Its only effect is the emoji shown in Library;
+ * the displayed topic label comes from the headline via `labelOverride`.
+ */
+const RESULT_TOPIC_ID: TopicId = "weekend";
 
 type LocalAudioEvent = { audioLevel: number };
 type DailyAudioCall = {
@@ -50,9 +56,13 @@ export default function ActiveSession() {
   const { colors, settings } = useTheme();
   const { addSession } = useAppData();
   const router = useRouter();
-  const params = useLocalSearchParams<{ topic?: string }>();
-  const topicId = (params.topic as TopicId) ?? "weekend";
-  const topic = useMemo(() => getTopic(topicId), [topicId]);
+  const params = useLocalSearchParams<{ title?: string }>();
+  const title = useMemo(() => {
+    const raw = typeof params.title === "string" ? params.title.trim() : "";
+    return raw.length > 0 ? raw : null;
+  }, [params.title]);
+  const headerLabel = title ?? "Open chat";
+  const headerEmoji = title ? "📰" : "💬";
 
   const [mode, setMode] = useState<SessionMode>("idle");
   const [remaining, setRemaining] = useState(SESSION_SECONDS);
@@ -72,7 +82,7 @@ export default function ActiveSession() {
   const addSessionRef = useRef(addSession);
   const routerRef = useRef(router);
   const hapticsEnabledRef = useRef(settings.hapticsEnabled);
-  const topicIdRef = useRef(topicId);
+  const titleRef = useRef(title);
 
   const elapsedRef = useRef(0);
   elapsedRef.current = SESSION_SECONDS - remaining;
@@ -90,8 +100,8 @@ export default function ActiveSession() {
   }, [settings.hapticsEnabled]);
 
   useEffect(() => {
-    topicIdRef.current = topicId;
-  }, [topicId]);
+    titleRef.current = title;
+  }, [title]);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -178,9 +188,10 @@ export default function ActiveSession() {
     }
 
     const result = buildResult(
-      topicIdRef.current,
+      RESULT_TOPIC_ID,
       [...dialogRef.current],
-      elapsedRef.current
+      elapsedRef.current,
+      titleRef.current ?? undefined
     );
 
     try {
@@ -344,7 +355,7 @@ export default function ActiveSession() {
         }
         const started = await client.start(
           config.assistantId,
-          buildAssistantOverrides(topic)
+          buildAssistantOverrides(title ?? undefined)
         );
         if (!active || finishedRef.current || finishScheduledRef.current) return;
         if (!started) {
@@ -371,7 +382,12 @@ export default function ActiveSession() {
       const shouldSaveOnLeave =
         !finishedRef.current && dialog.some((turn) => turn.speaker === "user");
       if (shouldSaveOnLeave) {
-        const result = buildResult(topicIdRef.current, dialog, elapsedRef.current);
+        const result = buildResult(
+          RESULT_TOPIC_ID,
+          dialog,
+          elapsedRef.current,
+          titleRef.current ?? undefined
+        );
         void addSessionRef.current(result).catch(() => undefined);
       }
       finishedRef.current = true;
@@ -389,7 +405,7 @@ export default function ActiveSession() {
     scheduleFinish,
     stopClient,
     stopLocalAudioMeter,
-    topic,
+    title,
   ]);
 
   // countdown
@@ -440,7 +456,7 @@ export default function ActiveSession() {
     <SafeAreaView style={[styles.screen, { backgroundColor: colors.bg }]}>
       <View style={styles.top}>
         <Text style={[typography.tiny, { color: colors.textFaint }]}>
-          {topic.emoji}  {topic.label.toUpperCase()}
+          {headerEmoji}  {headerLabel.toUpperCase()}
         </Text>
         <Text style={[styles.timer, { color: colors.text }]}>
           {mm}:{ss}
