@@ -9,6 +9,7 @@ import { useSharedValue, withTiming } from "react-native-reanimated";
 import { Orb, type OrbMode } from "../../components/Orb";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppData } from "../../context/AppDataContext";
+import { buildAiResult } from "../../lib/ai/critic";
 import { buildResult } from "../../lib/ai/scoring";
 import {
   buildAssistantOverrides,
@@ -187,7 +188,7 @@ export default function ActiveSession() {
       return;
     }
 
-    const result = buildResult(
+    const result = await buildAiResult(
       RESULT_TOPIC_ID,
       [...dialogRef.current],
       elapsedRef.current,

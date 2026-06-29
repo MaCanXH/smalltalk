@@ -34,6 +34,14 @@ export interface Suggestions {
   tips: string[];
 }
 
+export interface FeedbackMoment {
+  type: "ai_phrase" | "user_upgrade" | "topic_opener";
+  title: string;
+  quote: string;
+  explanation: string;
+  suggestion: string;
+}
+
 export interface SessionResult {
   id: string;
   /** ISO timestamp. */
@@ -46,6 +54,7 @@ export interface SessionResult {
   grade: string;
   vibeEmoji: string;
   suggestions: Suggestions;
+  moments?: FeedbackMoment[];
   dialog: DialogTurn[];
 }
 
