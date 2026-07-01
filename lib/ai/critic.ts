@@ -2,6 +2,9 @@ import type {
   DialogTurn,
   FeedbackHighlight,
   FeedbackMoment,
+  VocabularyItem,
+  CulturalClue,
+  NewsTopic,
   SessionResult,
   Suggestions,
   TopicId,
@@ -14,6 +17,9 @@ type AiFeedback = {
   keywords?: string[];
   highlights?: FeedbackHighlight[];
   moments?: FeedbackMoment[];
+  vocabulary?: VocabularyItem[];
+  culturalClues?: CulturalClue[];
+  conversationSummary?: string;
 };
 
 function buildTranscript(dialog: DialogTurn[]): string {
@@ -62,6 +68,42 @@ function validateMoments(value: unknown): FeedbackMoment[] {
     .slice(0, 6);
 }
 
+
+function validateVocabulary(value: unknown): VocabularyItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is VocabularyItem => {
+      if (!item || typeof item !== "object") return false;
+      const vocab = item as VocabularyItem;
+      return (
+        typeof vocab.term === "string" &&
+        typeof vocab.quote === "string" &&
+        typeof vocab.meaning === "string" &&
+        typeof vocab.example === "string" &&
+        typeof vocab.sayNextTime === "string"
+      );
+    })
+    .slice(0, 5);
+}
+
+function validateCulturalClues(value: unknown): CulturalClue[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is CulturalClue => {
+      if (!item || typeof item !== "object") return false;
+      const clue = item as CulturalClue;
+      return (
+        typeof clue.title === "string" &&
+        typeof clue.quote === "string" &&
+        typeof clue.explanation === "string" &&
+        typeof clue.trySaying === "string"
+      );
+    })
+    .slice(0, 3);
+}
+
 function validateAiFeedback(data: unknown): AiFeedback | null {
   if (!data || typeof data !== "object") return null;
 
@@ -74,6 +116,9 @@ function validateAiFeedback(data: unknown): AiFeedback | null {
     keywords?: unknown;
     highlights?: unknown;
     moments?: unknown;
+    vocabulary?: unknown;
+    culturalClues?: unknown;
+    conversationSummary?: unknown;
   };
 
   return {
@@ -85,6 +130,12 @@ function validateAiFeedback(data: unknown): AiFeedback | null {
     keywords: asStringArray(raw.keywords).slice(0, 4),
     highlights: validateHighlights(raw.highlights),
     moments: validateMoments(raw.moments),
+    vocabulary: validateVocabulary(raw.vocabulary),
+    culturalClues: validateCulturalClues(raw.culturalClues),
+    conversationSummary:
+      typeof raw.conversationSummary === "string"
+        ? raw.conversationSummary.trim()
+        : undefined,
   };
 }
 
@@ -100,13 +151,14 @@ export async function buildAiResult(
   topicId: TopicId,
   dialog: DialogTurn[],
   durationSec: number,
-  labelOverride?: string
+  labelOverride?: string,
+  newsContext?: NewsTopic
 ): Promise<SessionResult> {
   const localResult = buildResult(topicId, dialog, durationSec, labelOverride);
   const feedbackApiUrl = process.env.EXPO_PUBLIC_FEEDBACK_API_URL;
 
   if (!feedbackApiUrl) {
-    return localResult;
+    return { ...localResult, newsContext };
   }
 
   try {
@@ -125,6 +177,7 @@ export async function buildAiResult(
         transcript,
         dialog,
         localResult,
+        newsContext,
       }),
     });
 
@@ -154,9 +207,20 @@ export async function buildAiResult(
         aiFeedback.moments && aiFeedback.moments.length > 0
           ? aiFeedback.moments
           : localResult.moments,
+      vocabulary:
+        aiFeedback.vocabulary && aiFeedback.vocabulary.length > 0
+          ? aiFeedback.vocabulary
+          : localResult.vocabulary,
+      culturalClues:
+        aiFeedback.culturalClues && aiFeedback.culturalClues.length > 0
+          ? aiFeedback.culturalClues
+          : localResult.culturalClues,
+      conversationSummary:
+        aiFeedback.conversationSummary || localResult.conversationSummary,
+      newsContext,
     };
   } catch (error) {
     console.warn("AI feedback failed. Falling back to local scoring.", error);
-    return localResult;
+    return { ...localResult, newsContext };
   }
 }

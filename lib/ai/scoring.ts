@@ -1,7 +1,9 @@
 import type {
   DialogTurn,
-  FeedbackHighlight,
   ScoreIndex,
+  FeedbackHighlight,
+  VocabularyItem,
+  CulturalClue,
   SessionResult,
   Suggestions,
   TopicId,
@@ -185,6 +187,37 @@ function buildKeywords(topicLabel: string, dialog: DialogTurn[]): string[] {
   return [...picked].slice(0, 4);
 }
 
+
+function buildFallbackVocabulary(topicLabel: string): VocabularyItem[] {
+  const topic = topicLabel.trim();
+  if (!topic) return [];
+
+  return [
+    {
+      term: topic.length > 32 ? "current event" : topic,
+      quote: topic,
+      meaning: "A topic people are talking about now, often used to start casual conversation.",
+      example: `I saw something about ${topic} today.`,
+      sayNextTime: `I saw something about ${topic}, but I only know the basics.`,
+    },
+  ];
+}
+
+function buildFallbackCulturalClues(topicLabel: string): CulturalClue[] {
+  const topic = topicLabel.trim();
+  if (!topic) return [];
+
+  return [
+    {
+      title: "Current events small talk",
+      quote: topic,
+      explanation:
+        "With news topics, it is safe to keep your tone curious and avoid sounding too certain.",
+      trySaying: "I only saw the headline, but it sounds interesting. What do you think?",
+    },
+  ];
+}
+
 function buildHighlights(dialog: DialogTurn[]): FeedbackHighlight[] {
   return dialog
     .filter((turn) => turn.speaker === "user" && turn.text.trim().length > 0)
@@ -232,6 +265,9 @@ export function buildResult(
     suggestions: buildSuggestions(stats),
     keywords: buildKeywords(topicLabel, dialog),
     highlights: buildHighlights(dialog),
+    vocabulary: buildFallbackVocabulary(topicLabel),
+    culturalClues: buildFallbackCulturalClues(topicLabel),
+    conversationSummary: `You practiced a casual conversation about ${topicLabel}.`,
     dialog,
   };
 }

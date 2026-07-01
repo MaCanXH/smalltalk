@@ -9,7 +9,13 @@ import { useAppData } from "../../context/AppDataContext";
 import { useTheme } from "../../context/ThemeContext";
 import { getSession } from "../../lib/storage";
 import { radius, spacing, typography } from "../../styles/global";
-import type { DialogTurn, FeedbackMoment, SessionResult } from "../../types";
+import type {
+  CulturalClue,
+  DialogTurn,
+  FeedbackMoment,
+  SessionResult,
+  VocabularyItem,
+} from "../../types";
 
 const CHIP_ICONS = ["airplane", "color-palette", "calendar", "chatbubble-ellipses"] as const;
 
@@ -42,8 +48,12 @@ export default function ResultScreen() {
   }
 
   const hero = buildHero(result.finalScore);
+  const heroSubtitle =
+    result.conversationSummary?.trim() || result.newsContext?.brief || hero.subtitle;
   const keywords = result.keywords?.length ? result.keywords : [result.topicLabel];
   const highlights = result.highlights?.slice(0, 2) ?? [];
+  const vocabulary = result.vocabulary?.slice(0, 5) ?? [];
+  const culturalClues = result.culturalClues?.slice(0, 3) ?? [];
 
   return (
     <SafeAreaView
@@ -72,7 +82,7 @@ export default function ResultScreen() {
             <Text style={styles.heroTitle}>{hero.title}</Text>
             <Text style={styles.heroSpark}>⌁</Text>
           </View>
-          <Text style={styles.heroSubtitle}>{hero.subtitle}</Text>
+          <Text style={styles.heroSubtitle}>{heroSubtitle}</Text>
         </View>
 
         <Panel title="Keywords" icon="search" iconColor={colors.accent}>
@@ -105,6 +115,26 @@ export default function ResultScreen() {
                     <Text style={styles.highlightNote}>{highlight.note}</Text>
                   </View>
                 </View>
+              ))}
+            </View>
+          </Panel>
+        ) : null}
+
+        {vocabulary.length > 0 ? (
+          <Panel title="Vocabulary" icon="book-outline" iconColor="#38BDF8">
+            <View style={styles.studyList}>
+              {vocabulary.map((item, i) => (
+                <VocabularyCard key={`${item.term}_${i}`} item={item} />
+              ))}
+            </View>
+          </Panel>
+        ) : null}
+
+        {culturalClues.length > 0 ? (
+          <Panel title="Cultural Clues" icon="compass-outline" iconColor="#C084FC">
+            <View style={styles.studyList}>
+              {culturalClues.map((clue, i) => (
+                <CulturalClueCard key={`${clue.title}_${i}`} clue={clue} />
               ))}
             </View>
           </Panel>
@@ -213,6 +243,40 @@ function buildHero(score: number): { emoji: string; title: string; subtitle: str
     title: "Keep going!",
     subtitle: "You showed up and practiced. Next time, stretch each answer a little.",
   };
+}
+
+
+function VocabularyCard({ item }: { item: VocabularyItem }) {
+  return (
+    <View style={[styles.studyCard, styles.vocabCard]}>
+      <View style={styles.studyTopRow}>
+        <Text style={styles.vocabTerm}>{item.term}</Text>
+        <View style={styles.vocabBadge}>
+          <Text style={styles.vocabBadgeText}>WORD</Text>
+        </View>
+      </View>
+      <Text style={styles.studyQuote}>“{item.quote}”</Text>
+      <Text style={styles.studyBody}>{item.meaning}</Text>
+      <Text style={styles.studyExample}>Example: {item.example}</Text>
+      <Text style={styles.studyTry}>Try: {item.sayNextTime}</Text>
+    </View>
+  );
+}
+
+function CulturalClueCard({ clue }: { clue: CulturalClue }) {
+  return (
+    <View style={[styles.studyCard, styles.cultureCard]}>
+      <View style={styles.studyTopRow}>
+        <Text style={styles.cultureTitle}>{clue.title}</Text>
+        <View style={styles.cultureBadge}>
+          <Text style={styles.cultureBadgeText}>CONTEXT</Text>
+        </View>
+      </View>
+      <Text style={styles.studyQuote}>“{clue.quote}”</Text>
+      <Text style={styles.studyBody}>{clue.explanation}</Text>
+      <Text style={styles.studyTry}>Try: {clue.trySaying}</Text>
+    </View>
+  );
 }
 
 function getMomentsForTurn(turn: DialogTurn, moments: FeedbackMoment[]): FeedbackMoment[] {
@@ -483,6 +547,110 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
     lineHeight: 18,
+  },
+
+
+
+  studyList: {
+    gap: 12,
+  },
+
+  studyCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: spacing.md,
+  },
+
+  vocabCard: {
+    borderColor: "#1E5D7A",
+    backgroundColor: "#071927",
+  },
+
+  cultureCard: {
+    borderColor: "#5B2F8F",
+    backgroundColor: "#17102A",
+  },
+
+  studyTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+
+  vocabTerm: {
+    color: "#E0F2FE",
+    flex: 1,
+    fontSize: 19,
+    fontWeight: "900",
+    lineHeight: 24,
+  },
+
+  cultureTitle: {
+    color: "#F3E8FF",
+    flex: 1,
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 23,
+  },
+
+  vocabBadge: {
+    borderRadius: radius.pill,
+    backgroundColor: "#0C4A6E",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+
+  cultureBadge: {
+    borderRadius: radius.pill,
+    backgroundColor: "#4C1D95",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+
+  vocabBadgeText: {
+    color: "#BAE6FD",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
+
+  cultureBadgeText: {
+    color: "#E9D5FF",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
+
+  studyQuote: {
+    color: "#8FA0B8",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: 8,
+  },
+
+  studyBody: {
+    color: "#F5F7FB",
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 21,
+    marginTop: 9,
+  },
+
+  studyExample: {
+    color: "#A9B6C9",
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
+  },
+
+  studyTry: {
+    color: "#C7D2FE",
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 18,
+    marginTop: 7,
   },
 
   breakdownList: {
