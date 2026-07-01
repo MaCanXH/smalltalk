@@ -23,7 +23,7 @@ import {
   normalizeVapiConversation,
 } from "../../lib/ai/vapiTranscript";
 import { spacing, radius, typography } from "../../styles/global";
-import type { DialogTurn, TopicId } from "../../types";
+import type { DialogTurn, NewsTopic, TopicId } from "../../types";
 
 const SESSION_SECONDS = 180;
 
@@ -57,12 +57,25 @@ export default function ActiveSession() {
   const { colors, settings } = useTheme();
   const { addSession } = useAppData();
   const router = useRouter();
-  const params = useLocalSearchParams<{ title?: string }>();
+  const params = useLocalSearchParams<{ title?: string; newsContext?: string }>();
   const title = useMemo(() => {
     const raw = typeof params.title === "string" ? params.title.trim() : "";
     return raw.length > 0 ? raw : null;
   }, [params.title]);
-  const headerLabel = title ?? "Open chat";
+
+  const newsContext = useMemo<NewsTopic | undefined>(() => {
+    const raw =
+      typeof params.newsContext === "string" ? params.newsContext.trim() : "";
+
+    if (!raw) return undefined;
+
+    try {
+      return JSON.parse(raw) as NewsTopic;
+    } catch {
+      return undefined;
+    }
+  }, [params.newsContext]);
+  const headerLabel = newsContext?.short ?? title ?? "Open chat";
   const headerEmoji = title ? "📰" : "💬";
 
   const [mode, setMode] = useState<SessionMode>("idle");
@@ -84,6 +97,7 @@ export default function ActiveSession() {
   const routerRef = useRef(router);
   const hapticsEnabledRef = useRef(settings.hapticsEnabled);
   const titleRef = useRef(title);
+  const newsContextRef = useRef<NewsTopic | undefined>(newsContext);
 
   const elapsedRef = useRef(0);
   elapsedRef.current = SESSION_SECONDS - remaining;
@@ -103,6 +117,10 @@ export default function ActiveSession() {
   useEffect(() => {
     titleRef.current = title;
   }, [title]);
+
+  useEffect(() => {
+    newsContextRef.current = newsContext;
+  }, [newsContext]);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -192,7 +210,8 @@ export default function ActiveSession() {
       RESULT_TOPIC_ID,
       [...dialogRef.current],
       elapsedRef.current,
-      titleRef.current ?? undefined
+      titleRef.current ?? undefined,
+      newsContextRef.current
     );
 
     try {
@@ -356,7 +375,7 @@ export default function ActiveSession() {
         }
         const started = await client.start(
           config.assistantId,
-          buildAssistantOverrides(title ?? undefined)
+          buildAssistantOverrides(title ?? undefined, newsContext)
         );
         if (!active || finishedRef.current || finishScheduledRef.current) return;
         if (!started) {
@@ -383,12 +402,15 @@ export default function ActiveSession() {
       const shouldSaveOnLeave =
         !finishedRef.current && dialog.some((turn) => turn.speaker === "user");
       if (shouldSaveOnLeave) {
-        const result = buildResult(
-          RESULT_TOPIC_ID,
-          dialog,
-          elapsedRef.current,
-          titleRef.current ?? undefined
-        );
+        const result = {
+          ...buildResult(
+            RESULT_TOPIC_ID,
+            dialog,
+            elapsedRef.current,
+            titleRef.current ?? undefined
+          ),
+          newsContext: newsContextRef.current,
+        };
         void addSessionRef.current(result).catch(() => undefined);
       }
       finishedRef.current = true;
@@ -407,6 +429,7 @@ export default function ActiveSession() {
     stopClient,
     stopLocalAudioMeter,
     title,
+    newsContext,
   ]);
 
   // countdown

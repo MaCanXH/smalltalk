@@ -13,16 +13,8 @@ import { useSharedValue } from "react-native-reanimated";
 
 import { Orb } from "../../components/Orb";
 import { useTheme } from "../../context/ThemeContext";
-import { TOPICS } from "../../lib/ai/banks";
-import { fetchHotTopics, type HotTopic } from "../../lib/news/hotTopics";
+import { FALLBACK_TOPICS, fetchHotTopics, type HotTopic } from "../../lib/news/hotTopics";
 import { spacing, radius, typography } from "../../styles/global";
-
-/** If Google News can't be reached, fall back to the static topic catalog. */
-const FALLBACK_TOPICS: HotTopic[] = TOPICS.slice(0, 3).map((t) => ({
-  id: t.id,
-  short: t.label,
-  full: t.label,
-}));
 
 export default function HomeScreen() {
   const { colors } = useTheme();
@@ -63,7 +55,12 @@ export default function HomeScreen() {
   const start = () => {
     router.push({
       pathname: "/session/active",
-      params: selected ? { title: selected.full } : {},
+      params: selected
+        ? {
+            title: selected.full,
+            newsContext: JSON.stringify(selected),
+          }
+        : {},
     });
   };
 
@@ -89,7 +86,7 @@ export default function HomeScreen() {
             <View style={[styles.topicBtn, styles.loadingBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <ActivityIndicator color={colors.accent} />
               <Text style={{ color: colors.textDim, fontWeight: "600", fontSize: 15 }}>
-                Loading headlines…
+                Loading AI topics…
               </Text>
             </View>
           ) : (

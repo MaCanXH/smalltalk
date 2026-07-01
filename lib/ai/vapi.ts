@@ -1,4 +1,5 @@
 import Vapi from "@vapi-ai/react-native";
+import type { NewsTopic } from "../../types";
 
 export interface VapiConfig {
   publicKey: string;
@@ -62,15 +63,30 @@ Conversation behavior:
 - If a topic stalls, smoothly pivot with an icebreaker question.
 - Don't claim real-world identity; you're a fictional conversational partner.`;
 
-function buildSystemPrompt(topicLabel?: string): string {
+function buildSystemPrompt(topicLabel?: string, newsContext?: NewsTopic): string {
   if (!topicLabel) return SMALL_TALK_PERSONA;
+
+  const contextBlock = newsContext
+    ? `News context for this session:
+- Display topic: ${newsContext.short}
+- Topic description: ${newsContext.full}
+- Beginner background: ${newsContext.brief}
+- Talking points:
+${newsContext.talkingPoints.map((point) => `  - ${point}`).join("\n")}`
+    : `Topic focus:
+- The caller picked this trending news headline to chat about: "${topicLabel}".`;
+
   return `${SMALL_TALK_PERSONA}
 
-Topic focus:
-- The caller picked this trending news headline to chat about: "${topicLabel}".
-- Open by bringing it up naturally and keep the conversation centered on it.
-- If it drifts, gently steer back to this topic.
-- Stay light and casual — you don't need to be a news expert; react like a curious stranger.`;
+${contextBlock}
+
+Conversation instructions:
+- Open by bringing up the topic naturally.
+- Keep the conversation centered on this topic, but stay casual.
+- Use the provided context only. Do not invent extra breaking-news facts.
+- If the caller seems confused, briefly explain the topic in simple words.
+- Ask one natural follow-up question at a time.
+- Stay light and casual — react like a curious stranger, not a news anchor.`;
 }
 
 /**
@@ -86,7 +102,10 @@ const ASSISTANT_MODEL = "claude-haiku-4-5-20251001";
  * steered toward that headline (system prompt + an opening line); otherwise it
  * runs as a generic small-talk partner open to anything.
  */
-export function buildAssistantOverrides(topicLabel?: string): Record<string, unknown> {
+export function buildAssistantOverrides(
+  topicLabel?: string,
+  newsContext?: NewsTopic
+): Record<string, unknown> {
   const overrides: Record<string, unknown> = {
     maxDurationSeconds: 180,
     clientMessages: [
@@ -98,12 +117,13 @@ export function buildAssistantOverrides(topicLabel?: string): Record<string, unk
     model: {
       provider: ASSISTANT_MODEL_PROVIDER,
       model: ASSISTANT_MODEL,
-      messages: [{ role: "system", content: buildSystemPrompt(topicLabel) }],
+      messages: [{ role: "system", content: buildSystemPrompt(topicLabel, newsContext) }],
     },
   };
 
   if (topicLabel) {
-    overrides.firstMessage = `Hey! So I just saw this in the news — "${topicLabel}". What do you make of it?`;
+    const opener = newsContext?.short ?? topicLabel;
+    overrides.firstMessage = `Hey! I saw a topic about ${opener}. What do you think about it?`;
   }
 
   return overrides;
