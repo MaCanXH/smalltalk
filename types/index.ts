@@ -42,6 +42,11 @@ export interface FeedbackMoment {
   suggestion: string;
 }
 
+export interface FeedbackHighlight {
+  quote: string;
+  note: string;
+}
+
 export interface SessionResult {
   id: string;
   /** ISO timestamp. */
@@ -54,6 +59,10 @@ export interface SessionResult {
   grade: string;
   vibeEmoji: string;
   suggestions: Suggestions;
+  /** Short topic keywords shown as chips on the result screen. */
+  keywords?: string[];
+  /** Two strong user lines from this conversation. */
+  highlights?: FeedbackHighlight[];
   moments?: FeedbackMoment[];
   dialog: DialogTurn[];
 }

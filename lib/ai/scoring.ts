@@ -1,5 +1,6 @@
 import type {
   DialogTurn,
+  FeedbackHighlight,
   ScoreIndex,
   SessionResult,
   Suggestions,
@@ -147,6 +148,56 @@ function buildSuggestions(stats: UserStats): Suggestions {
   return { words: wordPicks, stalls, tips };
 }
 
+function titleCase(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+function buildKeywords(topicLabel: string, dialog: DialogTurn[]): string[] {
+  const picked = new Set<string>();
+
+  for (const raw of topicLabel.split(/[,&/]+/)) {
+    const cleaned = raw.trim();
+    if (cleaned) picked.add(titleCase(cleaned));
+  }
+
+  const userText = dialog
+    .filter((turn) => turn.speaker === "user")
+    .map((turn) => turn.text.toLowerCase())
+    .join(" ");
+
+  const candidates = [
+    "travel",
+    "hobbies",
+    "weekend plans",
+    "work",
+    "food",
+    "movies",
+    "music",
+    "school",
+    "weather",
+    "coffee",
+  ];
+
+  for (const candidate of candidates) {
+    if (userText.includes(candidate)) picked.add(titleCase(candidate));
+  }
+
+  return [...picked].slice(0, 4);
+}
+
+function buildHighlights(dialog: DialogTurn[]): FeedbackHighlight[] {
+  return dialog
+    .filter((turn) => turn.speaker === "user" && turn.text.trim().length > 0)
+    .slice(0, 2)
+    .map((turn, index) => ({
+      quote: turn.text,
+      note:
+        index === 0
+          ? "Clear opener that starts the conversation smoothly."
+          : "Nice follow-up that keeps the conversation moving.",
+    }));
+}
+
 let counter = 0;
 function makeId(): string {
   counter += 1;
@@ -166,18 +217,21 @@ export function buildResult(
     indices.reduce((sum, i) => sum + i.value, 0) / indices.length
   );
   const { grade: g, emoji } = grade(finalScore);
+  const topicLabel = labelOverride?.trim() || topic.label;
 
   return {
     id: makeId(),
     date: new Date().toISOString(),
     topic: topicId,
-    topicLabel: labelOverride?.trim() || topic.label,
+    topicLabel,
     durationSec,
     indices,
     finalScore,
     grade: g,
     vibeEmoji: emoji,
     suggestions: buildSuggestions(stats),
+    keywords: buildKeywords(topicLabel, dialog),
+    highlights: buildHighlights(dialog),
     dialog,
   };
 }

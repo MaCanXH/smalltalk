@@ -31,10 +31,13 @@ The transcript has two speakers, tagged on every line:
 - "AI PARTNER" is the practice bot the learner talked to. Never coach, correct, or rewrite the AI PARTNER's lines.
 
 Strict role rules:
+- A "highlight" MUST quote a strong or useful line tagged USER, never AI PARTNER.
 - A "user_upgrade" moment MUST quote a line tagged USER, never AI PARTNER.
-- An "ai_phrase" moment MUST quote a line tagged AI PARTNER (a phrase worth the learner reusing), never USER.
+- An "ai_phrase" moment MUST quote a line tagged AI PARTNER, never USER.
+- A "topic_opener" moment should usually quote a USER line where the learner could naturally ask a follow-up question.
 - suggestions.words must reference words the USER actually said.
-- Every "quote" you output must be copied verbatim from a line with the matching speaker tag. If you cannot find a matching line, omit that moment.`,
+- Every "quote" you output must be copied verbatim from a line with the matching speaker tag. If you cannot find a matching line, omit that item.
+- Keep all notes short. The UI is a mobile feedback screen.`,
         },
         {
           role: "user",
@@ -50,6 +53,21 @@ ${transcript}
 Return ONLY this JSON shape:
 
 {
+  "keywords": [
+    "Travel",
+    "Hobbies",
+    "Weekend plans"
+  ],
+  "highlights": [
+    {
+      "quote": "A strong USER line copied exactly",
+      "note": "One short reason this worked."
+    },
+    {
+      "quote": "Another strong USER line copied exactly",
+      "note": "One short reason this worked."
+    }
+  ],
   "suggestions": {
     "words": [
       "You said ___. Try ___ because ___."
@@ -65,21 +83,21 @@ Return ONLY this JSON shape:
     {
       "type": "user_upgrade",
       "title": "Make your line more natural",
-      "quote": "The user's original sentence",
+      "quote": "The user's original sentence copied exactly",
       "explanation": "Explain why this sentence can be improved.",
       "suggestion": "A more natural version the user could say."
     },
     {
       "type": "ai_phrase",
       "title": "Useful phrase from the AI",
-      "quote": "A natural phrase the AI used",
+      "quote": "A natural phrase the AI used copied exactly",
       "explanation": "Explain the slang, idiom, softener, filler, or casual phrase.",
       "suggestion": "A reusable sentence pattern."
     },
     {
       "type": "topic_opener",
       "title": "Topic opener to try next time",
-      "quote": "A moment where the user could have opened a new topic",
+      "quote": "A USER sentence where a follow-up could fit",
       "explanation": "Explain why this was a good chance to continue the conversation.",
       "suggestion": "A natural follow-up question or topic opener."
     }
@@ -87,15 +105,16 @@ Return ONLY this JSON shape:
 }
 
 Rules:
-- Do not score the user.
-- Do not return indices.
+- Do not score the user. The app already calculates Vibe, Fluency, Slang, and Stamina locally.
+- keywords should include 2 to 4 short topic chips.
+- highlights should include exactly 2 items when possible, both from USER lines.
 - suggestions.words should include 2 to 4 word upgrades.
 - suggestions.stalls should include 3 to 5 natural stalling phrases.
 - suggestions.tips should include 2 to 4 coaching tips.
-- moments should include 2 to 4 items.
+- moments should include 3 to 6 items.
 - Include slang or casual phrase explanations when possible.
 - Include at least one topic opener suggestion.
-- Keep everything short enough for a mobile feedback screen.
+- Keep every title under 7 words and every explanation under 18 words.
 `,
         },
       ],

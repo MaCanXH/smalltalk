@@ -1,5 +1,6 @@
 import type {
   DialogTurn,
+  FeedbackHighlight,
   FeedbackMoment,
   SessionResult,
   Suggestions,
@@ -10,6 +11,8 @@ import { buildResult } from "./scoring";
 
 type AiFeedback = {
   suggestions?: Partial<Suggestions>;
+  keywords?: string[];
+  highlights?: FeedbackHighlight[];
   moments?: FeedbackMoment[];
 };
 
@@ -25,6 +28,18 @@ function buildTranscript(dialog: DialogTurn[]): string {
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function validateHighlights(value: unknown): FeedbackHighlight[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is FeedbackHighlight => {
+      if (!item || typeof item !== "object") return false;
+      const highlight = item as FeedbackHighlight;
+      return typeof highlight.quote === "string" && typeof highlight.note === "string";
+    })
+    .slice(0, 2);
 }
 
 function validateMoments(value: unknown): FeedbackMoment[] {
@@ -44,7 +59,7 @@ function validateMoments(value: unknown): FeedbackMoment[] {
         typeof moment.suggestion === "string"
       );
     })
-    .slice(0, 4);
+    .slice(0, 6);
 }
 
 function validateAiFeedback(data: unknown): AiFeedback | null {
@@ -56,6 +71,8 @@ function validateAiFeedback(data: unknown): AiFeedback | null {
       stalls?: unknown;
       tips?: unknown;
     };
+    keywords?: unknown;
+    highlights?: unknown;
     moments?: unknown;
   };
 
@@ -65,6 +82,8 @@ function validateAiFeedback(data: unknown): AiFeedback | null {
       stalls: asStringArray(raw.suggestions?.stalls).slice(0, 5),
       tips: asStringArray(raw.suggestions?.tips).slice(0, 5),
     },
+    keywords: asStringArray(raw.keywords).slice(0, 4),
+    highlights: validateHighlights(raw.highlights),
     moments: validateMoments(raw.moments),
   };
 }
@@ -123,6 +142,14 @@ export async function buildAiResult(
     return {
       ...localResult,
       suggestions: mergeSuggestions(localResult.suggestions, aiFeedback.suggestions),
+      keywords:
+        aiFeedback.keywords && aiFeedback.keywords.length > 0
+          ? aiFeedback.keywords
+          : localResult.keywords,
+      highlights:
+        aiFeedback.highlights && aiFeedback.highlights.length > 0
+          ? aiFeedback.highlights
+          : localResult.highlights,
       moments:
         aiFeedback.moments && aiFeedback.moments.length > 0
           ? aiFeedback.moments
