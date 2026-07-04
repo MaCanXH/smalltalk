@@ -1,24 +1,60 @@
+import type { NewsTopic } from "../../types";
+
 /**
- * Trending "hot topics" for the Talk tab, pulled from the Google News RSS feed.
+ * Trending topics now come from our backend, not directly from the app.
  *
- * Google News has no official API, but its RSS feed is fetchable from a native
- * app and returns the current top stories. We grab the feed, pick a few at
- * random, and shorten each headline for display (heuristic clean + trim):
- * strip the trailing "- Publisher", drop any sub-clause after a colon/em dash,
- * then cap at 8 words with an ellipsis. The unshortened (publisher-stripped)
- * headline is kept too, so the AI can be steered with the full context.
+ * Backend flow:
+ * /api/hot-topics -> Google News RSS -> Groq cleanup/summarization -> app.
+ *
+ * This keeps the home screen clean: users see beginner-friendly small-talk
+ * topics instead of raw news headlines with publisher clutter.
  */
 
-const FEED_URL = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en";
+export type HotTopic = NewsTopic;
+
 const MAX_WORDS = 8;
 
-export interface HotTopic {
-  id: string;
-  /** Short headline for display (≤ 8 words). */
-  short: string;
-  /** Cleaned full headline (publisher removed) used to steer the AI. */
-  full: string;
-}
+export const FALLBACK_TOPICS: HotTopic[] = [
+  {
+    id: "fallback_ai_tools",
+    short: "AI in daily life",
+    full: "People are talking about how AI tools are changing work, school, and everyday routines.",
+    brief:
+      "A beginner-friendly topic about whether AI tools feel helpful, stressful, or fun.",
+    talkingPoints: [
+      "Ask if the user has tried any new AI tools recently.",
+      "Talk about whether AI saves time or makes things more confusing.",
+    ],
+    source: "Fallback",
+    url: "",
+  },
+  {
+    id: "fallback_travel_costs",
+    short: "Summer travel costs",
+    full: "People are discussing travel plans, flight prices, and how expensive trips can feel.",
+    brief:
+      "A casual topic about trips, prices, dream destinations, and weekend getaways.",
+    talkingPoints: [
+      "Ask whether the user has any travel plans coming up.",
+      "Talk about a place they would visit if prices were lower.",
+    ],
+    source: "Fallback",
+    url: "",
+  },
+  {
+    id: "fallback_weather_plans",
+    short: "Weather and plans",
+    full: "People are talking about changing weather and how it affects daily plans.",
+    brief:
+      "An easy small-talk topic about weather, routines, outfits, and outdoor plans.",
+    talkingPoints: [
+      "Ask how the weather has been where the user is.",
+      "Talk about how weather changes weekend plans.",
+    ],
+    source: "Fallback",
+    url: "",
+  },
+];
 
 const ENTITIES: Record<string, string> = {
   "&amp;": "&",
@@ -42,7 +78,7 @@ function stripCData(value: string): string {
   return value.replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "");
 }
 
-/** Pull the `<title>` text from each `<item>` block of an RSS document. */
+/** Kept for unit tests and fallback parsing experiments. */
 export function extractItemTitles(xml: string): string[] {
   const items = xml.match(/<item\b[\s\S]*?<\/item>/g) ?? [];
   const titles: string[] = [];
@@ -55,16 +91,13 @@ export function extractItemTitles(xml: string): string[] {
   return titles;
 }
 
-/** Remove the trailing " - Publisher" that Google News appends to titles. */
 export function cleanHeadline(raw: string): string {
   const trimmed = raw.trim().replace(/\s+/g, " ");
   const dashIndex = trimmed.lastIndexOf(" - ");
   return dashIndex > 0 ? trimmed.slice(0, dashIndex).trim() : trimmed;
 }
 
-/** Shorten a cleaned headline to ≤ 8 words (heuristic clean + trim). */
 export function shortenHeadline(full: string): string {
-  // Drop a trailing sub-clause introduced by a colon or em dash.
   const clauseSplit = full.search(/\s[—–]\s|:\s/);
   const base = (clauseSplit > 0 ? full.slice(0, clauseSplit) : full).trim();
 
@@ -75,33 +108,48 @@ export function shortenHeadline(full: string): string {
   return base;
 }
 
-function pickRandom<T>(items: T[], count: number): T[] {
-  const copy = [...items];
-  for (let i = copy.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy.slice(0, count);
+function getBackendBaseUrl(): string | null {
+  const feedbackUrl = process.env.EXPO_PUBLIC_FEEDBACK_API_URL?.trim();
+  if (!feedbackUrl) return null;
+
+  return feedbackUrl.replace(/\/api\/feedback\/?$/, "").replace(/\/$/, "");
+}
+
+function normalizeTopic(topic: Partial<HotTopic>, index: number): HotTopic {
+  const short = String(topic.short ?? "Current event").trim() || "Current event";
+  const full = String(topic.full ?? short).trim() || short;
+
+  return {
+    id: String(topic.id ?? `hot_${index}`),
+    short,
+    full,
+    brief: String(topic.brief ?? "A casual current-events topic for small talk.").trim(),
+    talkingPoints: Array.isArray(topic.talkingPoints)
+      ? topic.talkingPoints.map(String).filter(Boolean).slice(0, 3)
+      : [],
+    source: topic.source,
+    url: topic.url,
+  };
 }
 
 export async function fetchHotTopics(count = 3): Promise<HotTopic[]> {
-  const response = await fetch(FEED_URL);
+  const baseUrl = getBackendBaseUrl();
+
+  if (!baseUrl) {
+    return FALLBACK_TOPICS.slice(0, count);
+  }
+
+  const response = await fetch(`${baseUrl}/api/hot-topics`);
   if (!response.ok) {
-    throw new Error(`Google News feed failed with status ${response.status}`);
+    throw new Error(`Hot topics API failed with status ${response.status}`);
   }
 
-  const xml = await response.text();
-  const titles = extractItemTitles(xml);
-  if (titles.length === 0) {
-    throw new Error("No headlines found in the Google News feed.");
+  const json = await response.json();
+  const topics = Array.isArray(json.topics) ? json.topics : [];
+
+  if (topics.length === 0) {
+    return FALLBACK_TOPICS.slice(0, count);
   }
 
-  return pickRandom(titles, count).map((raw, index) => {
-    const full = cleanHeadline(raw);
-    return {
-      id: `hot_${index}_${full.slice(0, 16).replace(/\s+/g, "_")}`,
-      short: shortenHeadline(full),
-      full,
-    };
-  });
+  return topics.slice(0, count).map(normalizeTopic);
 }

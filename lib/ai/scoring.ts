@@ -1,6 +1,9 @@
 import type {
   DialogTurn,
   ScoreIndex,
+  FeedbackHighlight,
+  VocabularyItem,
+  CulturalClue,
   SessionResult,
   Suggestions,
   TopicId,
@@ -147,6 +150,87 @@ function buildSuggestions(stats: UserStats): Suggestions {
   return { words: wordPicks, stalls, tips };
 }
 
+function titleCase(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+function buildKeywords(topicLabel: string, dialog: DialogTurn[]): string[] {
+  const picked = new Set<string>();
+
+  for (const raw of topicLabel.split(/[,&/]+/)) {
+    const cleaned = raw.trim();
+    if (cleaned) picked.add(titleCase(cleaned));
+  }
+
+  const userText = dialog
+    .filter((turn) => turn.speaker === "user")
+    .map((turn) => turn.text.toLowerCase())
+    .join(" ");
+
+  const candidates = [
+    "travel",
+    "hobbies",
+    "weekend plans",
+    "work",
+    "food",
+    "movies",
+    "music",
+    "school",
+    "weather",
+    "coffee",
+  ];
+
+  for (const candidate of candidates) {
+    if (userText.includes(candidate)) picked.add(titleCase(candidate));
+  }
+
+  return [...picked].slice(0, 4);
+}
+
+
+function buildFallbackVocabulary(topicLabel: string): VocabularyItem[] {
+  const topic = topicLabel.trim();
+  if (!topic) return [];
+
+  return [
+    {
+      term: topic.length > 32 ? "current event" : topic,
+      quote: topic,
+      meaning: "A topic people are talking about now, often used to start casual conversation.",
+      example: `I saw something about ${topic} today.`,
+      sayNextTime: `I saw something about ${topic}, but I only know the basics.`,
+    },
+  ];
+}
+
+function buildFallbackCulturalClues(topicLabel: string): CulturalClue[] {
+  const topic = topicLabel.trim();
+  if (!topic) return [];
+
+  return [
+    {
+      title: "Current events small talk",
+      quote: topic,
+      explanation:
+        "With news topics, it is safe to keep your tone curious and avoid sounding too certain.",
+      trySaying: "I only saw the headline, but it sounds interesting. What do you think?",
+    },
+  ];
+}
+
+function buildHighlights(dialog: DialogTurn[]): FeedbackHighlight[] {
+  return dialog
+    .filter((turn) => turn.speaker === "user" && turn.text.trim().length > 0)
+    .slice(0, 2)
+    .map((turn, index) => ({
+      quote: turn.text,
+      note:
+        index === 0
+          ? "Clear opener that starts the conversation smoothly."
+          : "Nice follow-up that keeps the conversation moving.",
+    }));
+}
+
 let counter = 0;
 function makeId(): string {
   counter += 1;
@@ -166,18 +250,24 @@ export function buildResult(
     indices.reduce((sum, i) => sum + i.value, 0) / indices.length
   );
   const { grade: g, emoji } = grade(finalScore);
+  const topicLabel = labelOverride?.trim() || topic.label;
 
   return {
     id: makeId(),
     date: new Date().toISOString(),
     topic: topicId,
-    topicLabel: labelOverride?.trim() || topic.label,
+    topicLabel,
     durationSec,
     indices,
     finalScore,
     grade: g,
     vibeEmoji: emoji,
     suggestions: buildSuggestions(stats),
+    keywords: buildKeywords(topicLabel, dialog),
+    highlights: buildHighlights(dialog),
+    vocabulary: buildFallbackVocabulary(topicLabel),
+    culturalClues: buildFallbackCulturalClues(topicLabel),
+    conversationSummary: `You practiced a casual conversation about ${topicLabel}.`,
     dialog,
   };
 }
