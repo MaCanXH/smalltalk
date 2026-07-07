@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "../../context/ThemeContext";
 import { useAppData } from "../../context/AppDataContext";
+import { useAuth } from "../../context/AuthContext";
 import { speak } from "../../lib/speech/tts";
 import { clearAll } from "../../lib/storage";
 import { ACCENT_PRESETS, spacing, radius, typography } from "../../styles/global";
@@ -19,6 +20,7 @@ import { ACCENT_PRESETS, spacing, radius, typography } from "../../styles/global
 export default function SettingsScreen() {
   const { colors, settings, setAccent, updateSettings } = useTheme();
   const { refresh } = useAppData();
+  const { user, configured, signOut, requireSignIn } = useAuth();
 
   const resetAll = () => {
     Alert.alert(
@@ -115,6 +117,64 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* Account */}
+        {configured && (
+          <>
+            <Text style={[styles.section, { color: colors.textFaint }]}>ACCOUNT</Text>
+            {user ? (
+              <>
+                <View
+                  style={[
+                    styles.toggleRow,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ]}
+                >
+                  <View style={{ flex: 1, marginRight: spacing.md }}>
+                    <Text style={[typography.body, { color: colors.text }]}>
+                      Signed in
+                    </Text>
+                    <Text
+                      style={[typography.small, { color: colors.textDim }]}
+                      numberOfLines={1}
+                    >
+                      {user.email ?? "Synced across devices"}
+                    </Text>
+                  </View>
+                  <Ionicons name="cloud-done" size={20} color={colors.success} />
+                </View>
+                <Pressable
+                  onPress={signOut}
+                  style={[
+                    styles.toggleRow,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ]}
+                >
+                  <Text style={[typography.body, { color: colors.text }]}>Sign out</Text>
+                  <Ionicons name="log-out-outline" size={20} color={colors.textDim} />
+                </Pressable>
+              </>
+            ) : (
+              <Pressable
+                onPress={requireSignIn}
+                style={[
+                  styles.toggleRow,
+                  { backgroundColor: colors.surface, borderColor: colors.accent },
+                ]}
+              >
+                <View style={{ flex: 1, marginRight: spacing.md }}>
+                  <Text style={[typography.body, { color: colors.accent }]}>
+                    Sign in to sync
+                  </Text>
+                  <Text style={[typography.small, { color: colors.textDim }]}>
+                    Back up sessions and sync across devices.
+                  </Text>
+                </View>
+                <Ionicons name="cloud-upload-outline" size={20} color={colors.accent} />
+              </Pressable>
+            )}
+          </>
+        )}
+
         {/* Data */}
         <Text style={[styles.section, { color: colors.textFaint }]}>DATA</Text>
         <Pressable
@@ -126,7 +186,7 @@ export default function SettingsScreen() {
         </Pressable>
 
         <Text style={[typography.tiny, { color: colors.textFaint, marginTop: spacing.xl, textAlign: "center" }]}>
-          Small Talk · 100% on-device · no account, no server
+          Small Talk · local-first · optional cloud sync
         </Text>
       </ScrollView>
     </SafeAreaView>
