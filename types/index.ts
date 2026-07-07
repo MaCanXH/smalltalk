@@ -17,6 +17,23 @@ export type TopicId =
   | "hobbies"
   | "movies";
 
+export interface NewsQuote {
+  /** Short exact quote, phrase, or social post text from the sources. */
+  quote: string;
+  /** Person, organization, account, or outlet that said or posted it. */
+  speaker?: string;
+  /** Why this quote matters in the story. */
+  context?: string;
+  /** Source name or URL when available. */
+  source?: string;
+}
+
+export interface NewsVocabularyItem {
+  term: string;
+  meaning: string;
+  example?: string;
+}
+
 export interface NewsTopic {
   id: string;
   /** Clean AI-generated title shown on the home screen. */
@@ -25,10 +42,34 @@ export interface NewsTopic {
   full: string;
   /** Beginner-friendly context for the conversation. */
   brief: string;
+  /** Concrete facts/context extracted from news snippets for Vapi to use. */
+  details?: string[];
+  /** Memorable short quotes/posts from supplied news text. */
+  keyQuotes?: NewsQuote[];
+  /** What happened first/next, useful for explaining the story simply. */
+  timeline?: string[];
+  /** Main drama, debate, backlash, or funny hook people may discuss. */
+  controversy?: string;
+  /** Vocabulary items generated from the news context. */
+  vocabulary?: NewsVocabularyItem[];
+  /** Cultural/social clues a language learner may miss. */
+  culturalClues?: string[];
+  /** Human follow-up angles for a casual conversation. */
+  conversationAngles?: string[];
+  /** Why this story is relevant to everyday conversation. */
+  whyItMatters?: string;
+  /** Topic vocabulary, news terms, or casual phrases worth explaining. */
+  keyTerms?: string[];
+  /** Guidance for keeping the topic safe, light, and socially natural. */
+  safeFraming?: string;
   /** Small-talk angles Vapi can use during the voice session. */
   talkingPoints: string[];
   source?: string;
+  /** Primary source URL. */
   url?: string;
+  /** Up to a few source URLs used to create this topic pack. */
+  sourceUrls?: string[];
+  publishedAt?: string;
 }
 
 export interface ScoreIndex {

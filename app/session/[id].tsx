@@ -157,7 +157,10 @@ export default function ResultScreen() {
                       ]}
                     />
                   </View>
-                  <Text style={styles.indexBlurb}>{idx.blurb}</Text>
+                  <View style={styles.indexCommentRow}>
+                    <Ionicons name="chatbubble-outline" size={14} color="#6B7A90" />
+                    <Text style={styles.indexBlurb}>{idx.blurb}</Text>
+                  </View>
                 </View>
                 <Text style={[styles.indexValue, { color: colors.accent }]}>
                   {idx.value}
@@ -665,7 +668,7 @@ const styles = StyleSheet.create({
 
   indexLabel: {
     color: "#F5F7FB",
-    width: 78,
+    width: 86,
     fontSize: 18,
     fontWeight: "700",
   },
@@ -687,11 +690,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
 
+  indexCommentRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 8,
+  },
+
   indexBlurb: {
     color: "#9BA7BA",
+    flex: 1,
     fontSize: 13,
     lineHeight: 18,
-    marginTop: 7,
   },
 
   indexValue: {

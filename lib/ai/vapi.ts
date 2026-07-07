@@ -71,8 +71,54 @@ function buildSystemPrompt(topicLabel?: string, newsContext?: NewsTopic): string
 - Display topic: ${newsContext.short}
 - Topic description: ${newsContext.full}
 - Beginner background: ${newsContext.brief}
+${
+  newsContext.details && newsContext.details.length > 0
+    ? `- Concrete details to remember:\n${newsContext.details.map((detail) => `  - ${detail}`).join("\n")}`
+    : ""
+}
+${
+  newsContext.keyQuotes && newsContext.keyQuotes.length > 0
+    ? `- Memorable quotes or posts you may mention naturally:\n${newsContext.keyQuotes
+        .map((item) => {
+          const speaker = item.speaker ? ` — ${item.speaker}` : "";
+          const context = item.context ? ` (${item.context})` : "";
+          return `  - "${item.quote}"${speaker}${context}`;
+        })
+        .join("\n")}`
+    : ""
+}
+${
+  newsContext.timeline && newsContext.timeline.length > 0
+    ? `- Simple timeline:\n${newsContext.timeline.map((item) => `  - ${item}`).join("\n")}`
+    : ""
+}
+${newsContext.controversy ? `- Main drama / debate: ${newsContext.controversy}` : ""}
+${newsContext.whyItMatters ? `- Why people may talk about it: ${newsContext.whyItMatters}` : ""}
+${
+  newsContext.keyTerms && newsContext.keyTerms.length > 0
+    ? `- Key terms to explain naturally if useful: ${newsContext.keyTerms.join(", ")}`
+    : ""
+}
+${
+  newsContext.vocabulary && newsContext.vocabulary.length > 0
+    ? `- Useful vocabulary:\n${newsContext.vocabulary
+        .map((item) => `  - ${item.term}: ${item.meaning}${item.example ? ` Example: ${item.example}` : ""}`)
+        .join("\n")}`
+    : ""
+}
+${
+  newsContext.culturalClues && newsContext.culturalClues.length > 0
+    ? `- Cultural clues a learner may miss:\n${newsContext.culturalClues.map((item) => `  - ${item}`).join("\n")}`
+    : ""
+}
+${newsContext.safeFraming ? `- Safe framing: ${newsContext.safeFraming}` : ""}
 - Talking points:
-${newsContext.talkingPoints.map((point) => `  - ${point}`).join("\n")}`
+${newsContext.talkingPoints.map((point) => `  - ${point}`).join("\n")}
+${
+  newsContext.conversationAngles && newsContext.conversationAngles.length > 0
+    ? `- Human conversation angles:\n${newsContext.conversationAngles.map((point) => `  - ${point}`).join("\n")}`
+    : ""
+}`
     : `Topic focus:
 - The caller picked this trending news headline to chat about: "${topicLabel}".`;
 
@@ -81,9 +127,11 @@ ${newsContext.talkingPoints.map((point) => `  - ${point}`).join("\n")}`
 ${contextBlock}
 
 Conversation instructions:
-- Open by bringing up the topic naturally.
+- Open like a normal person who read the story and remembers the most interesting part.
 - Keep the conversation centered on this topic, but stay casual.
-- Use the provided context only. Do not invent extra breaking-news facts.
+- Use the provided context only. Do not invent extra breaking-news facts, quotes, scores, names, or statistics.
+- Use the details, quotes, drama/debate, vocabulary, and cultural clues to sound informed.
+- If quotes are available, mention at most one short quote naturally; do not overquote.
 - If the caller seems confused, briefly explain the topic in simple words.
 - Ask one natural follow-up question at a time.
 - Stay light and casual — react like a curious stranger, not a news anchor.`;

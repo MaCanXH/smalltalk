@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -25,10 +25,12 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadTopics = useCallback((refresh = false) => {
     let active = true;
     setLoading(true);
-    fetchHotTopics(3)
+    if (refresh) setSelectedId(null);
+
+    fetchHotTopics(3, { refresh })
       .then((hot) => {
         if (active) setTopics(hot);
       })
@@ -38,10 +40,13 @@ export default function HomeScreen() {
       .finally(() => {
         if (active) setLoading(false);
       });
+
     return () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => loadTopics(false), [loadTopics]);
 
   const selected = useMemo(
     () => topics.find((t) => t.id === selectedId) ?? null,
@@ -79,6 +84,21 @@ export default function HomeScreen() {
           <Text style={[typography.h1, { color: colors.text, marginTop: 4 }]}>
             {"What's trending now"}
           </Text>
+        </View>
+
+        <View style={styles.topicHeader}>
+          <Text style={[styles.topicHint, { color: colors.textDim }]}>
+            Pick one topic, or refresh for a new set.
+          </Text>
+          <Pressable
+            onPress={() => loadTopics(true)}
+            disabled={loading}
+            style={[styles.refreshBtn, { borderColor: colors.border }]}
+          >
+            <Text style={{ color: colors.accent, fontWeight: "700", fontSize: 13 }}>
+              Refresh
+            </Text>
+          </Pressable>
         </View>
 
         <View style={styles.topicBlock}>
@@ -142,8 +162,26 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: spacing.lg,
   },
-  topicBlock: {
+  topicHeader: {
     marginTop: spacing.xl,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  topicHint: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  refreshBtn: {
+    borderWidth: 1,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  topicBlock: {
+    marginTop: spacing.sm,
     gap: spacing.sm,
   },
   topicBtn: {
