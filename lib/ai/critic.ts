@@ -9,6 +9,7 @@ import type {
   Suggestions,
   TopicId,
 } from "../../types";
+import { getFunctionsAuthHeaders } from "../supabase";
 import { getTopic } from "./banks";
 import { buildResult } from "./scoring";
 
@@ -169,6 +170,7 @@ export async function buildAiResult(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(await getFunctionsAuthHeaders()),
       },
       body: JSON.stringify({
         topicId,

@@ -238,7 +238,13 @@ export async function fetchHotTopics(
   const params = new URLSearchParams({ count: String(count) });
   if (options.refresh) params.set("refresh", String(Date.now()));
 
-  const response = await fetch(`${baseUrl}/api/hot-topics?${params.toString()}`);
+  // Imported lazily so the node test runner can load this module's pure
+  // helpers without dragging in the React Native supabase client.
+  const { getFunctionsAuthHeaders } = await import("../supabase");
+
+  const response = await fetch(`${baseUrl}/api/hot-topics?${params.toString()}`, {
+    headers: await getFunctionsAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`Hot topics API failed with status ${response.status}`);
   }

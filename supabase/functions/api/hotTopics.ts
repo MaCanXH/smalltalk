@@ -1,15 +1,27 @@
-import express from "express";
-import cors from "cors";
-import "dotenv/config";
-import Groq from "groq-sdk";
+// deno-lint-ignore-file no-explicit-any
+import { groq } from "./groq.ts";
 
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: "2mb" }));
+/**
+ * GET /api/hot-topics — Google News RSS -> Groq topic packs, ported verbatim
+ * from server.mjs. The response JSON shape is the contract with the app's
+ * `normalizeTopic` (lib/news/hotTopics.ts); keep it identical.
+ */
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+interface NewsItem {
+  id: string;
+  title: string;
+  description: string;
+  source: string;
+  sourceGroup: string;
+  pubDate: string;
+  link: string;
+}
+
+interface ArticleSnapshot {
+  url: string;
+  title: string;
+  text: string;
+}
 
 const GOOGLE_NEWS_FEEDS = [
   {
@@ -114,7 +126,7 @@ const NEWS_FALLBACK_TOPICS = [
   },
 ];
 
-const ENTITIES = {
+const ENTITIES: Record<string, string> = {
   "&amp;": "&",
   "&lt;": "<",
   "&gt;": ">",
@@ -125,7 +137,7 @@ const ENTITIES = {
   "&nbsp;": " ",
 };
 
-function decodeEntities(value) {
+function decodeEntities(value: unknown): string {
   return String(value ?? "")
     .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
       String.fromCodePoint(parseInt(hex, 16))
@@ -134,33 +146,33 @@ function decodeEntities(value) {
     .replace(/&[a-zA-Z#0-9]+;/g, (m) => ENTITIES[m] ?? m);
 }
 
-function stripCData(value) {
+function stripCData(value: unknown): string {
   return String(value ?? "").replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "");
 }
 
-function stripHtml(value) {
+function stripHtml(value: unknown): string {
   return decodeEntities(String(value ?? "").replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function getTag(item, tag) {
+function getTag(item: string, tag: string): string {
   const match = item.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`));
   return match ? decodeEntities(stripCData(match[1]).trim()).trim() : "";
 }
 
-function cleanHeadline(raw) {
+function cleanHeadline(raw: string): string {
   const trimmed = raw.trim().replace(/\s+/g, " ");
   const dashIndex = trimmed.lastIndexOf(" - ");
   return dashIndex > 0 ? trimmed.slice(0, dashIndex).trim() : trimmed;
 }
 
-function compactString(value, fallback = "") {
+function compactString(value: unknown, fallback = ""): string {
   return String(value ?? fallback).trim().replace(/\s+/g, " ");
 }
 
-function uniqueBy(items, keyFn) {
-  const seen = new Set();
+function uniqueBy<T>(items: T[], keyFn: (item: T) => string): T[] {
+  const seen = new Set<string>();
   return items.filter((item) => {
     const key = keyFn(item);
     if (!key || seen.has(key)) return false;
@@ -169,7 +181,7 @@ function uniqueBy(items, keyFn) {
   });
 }
 
-function extractNewsItems(xml, sourceGroup) {
+function extractNewsItems(xml: string, sourceGroup: string): NewsItem[] {
   const items = xml.match(/<item\b[\s\S]*?<\/item>/g) ?? [];
 
   return items
@@ -191,7 +203,7 @@ function extractNewsItems(xml, sourceGroup) {
     .filter((item) => item.title.length > 0);
 }
 
-async function fetchAllNewsItems() {
+async function fetchAllNewsItems(): Promise<NewsItem[]> {
   const responses = await Promise.allSettled(
     GOOGLE_NEWS_FEEDS.map(async (feed) => {
       const response = await fetch(feed.url);
@@ -210,7 +222,7 @@ async function fetchAllNewsItems() {
   return uniqueBy(items, (item) => item.title.toLowerCase()).slice(0, 36);
 }
 
-function buildGoogleNewsSearchUrl(query) {
+function buildGoogleNewsSearchUrl(query: string): string {
   const params = new URLSearchParams({
     q: query,
     hl: "en-US",
@@ -220,7 +232,7 @@ function buildGoogleNewsSearchUrl(query) {
   return `https://news.google.com/rss/search?${params.toString()}`;
 }
 
-function buildRelatedNewsQuery(topic, sourceItems) {
+function buildRelatedNewsQuery(topic: any, sourceItems: NewsItem[]): string {
   const pieces = [topic?.short, topic?.full]
     .concat(sourceItems.map((item) => item.title))
     .filter(Boolean)
@@ -235,7 +247,7 @@ function buildRelatedNewsQuery(topic, sourceItems) {
     .join(" ");
 }
 
-async function fetchRelatedNewsItems(query) {
+async function fetchRelatedNewsItems(query: string): Promise<NewsItem[]> {
   if (!query) return [];
   try {
     const response = await fetch(buildGoogleNewsSearchUrl(query));
@@ -243,12 +255,12 @@ async function fetchRelatedNewsItems(query) {
     const xml = await response.text();
     return extractNewsItems(xml, "Google News Related Search").slice(0, 8);
   } catch (err) {
-    console.warn("Related news search failed:", err?.message ?? err);
+    console.warn("Related news search failed:", (err as Error)?.message ?? err);
     return [];
   }
 }
 
-function extractParagraphText(html) {
+function extractParagraphText(html: string): string {
   const paragraphs = Array.from(html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi))
     .map((match) => stripHtml(match[1]))
     .filter((text) => text.length > 80 && !/subscribe|sign up|cookie|advertisement/i.test(text));
@@ -256,7 +268,7 @@ function extractParagraphText(html) {
   return paragraphs.join("\n").replace(/\s+\n/g, "\n").slice(0, 5000);
 }
 
-async function fetchArticleSnapshot(url) {
+async function fetchArticleSnapshot(url: string): Promise<ArticleSnapshot | null> {
   if (!url || /news\.google\.com\//i.test(url)) return null;
 
   try {
@@ -280,12 +292,12 @@ async function fetchArticleSnapshot(url) {
       text,
     };
   } catch (err) {
-    console.warn("Article fetch failed:", err?.message ?? err);
+    console.warn("Article fetch failed:", (err as Error)?.message ?? err);
     return null;
   }
 }
 
-function normalizeKeyQuotes(value, limit) {
+function normalizeKeyQuotes(value: unknown, limit: number) {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => ({
@@ -298,7 +310,7 @@ function normalizeKeyQuotes(value, limit) {
     .slice(0, limit);
 }
 
-function normalizeVocabulary(value, limit) {
+function normalizeVocabulary(value: unknown, limit: number) {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => ({
@@ -310,22 +322,27 @@ function normalizeVocabulary(value, limit) {
     .slice(0, limit);
 }
 
-function mergeUniqueStrings(...groups) {
+function mergeUniqueStrings(...groups: unknown[][]): string[] {
   return uniqueBy(
     groups.flat().map((item) => compactString(item)).filter(Boolean),
     (item) => item.toLowerCase()
   );
 }
 
-async function enrichTopicWithoutChangingIdentity(topic) {
-  const baseSourceItems = Array.isArray(topic.sourceItems) ? topic.sourceItems : [];
+async function enrichTopicWithoutChangingIdentity(topic: any): Promise<any> {
+  const baseSourceItems: NewsItem[] = Array.isArray(topic.sourceItems)
+    ? topic.sourceItems
+    : [];
   const query = buildRelatedNewsQuery(topic, baseSourceItems);
   const relatedItems = await fetchRelatedNewsItems(query);
-  const allItems = uniqueBy([...baseSourceItems, ...relatedItems], (item) => item.title.toLowerCase()).slice(0, 10);
+  const allItems = uniqueBy(
+    [...baseSourceItems, ...relatedItems],
+    (item) => item.title.toLowerCase()
+  ).slice(0, 10);
 
   const articleSnapshots = (
     await Promise.all(allItems.slice(0, 3).map((item) => fetchArticleSnapshot(item.link)))
-  ).filter(Boolean);
+  ).filter((snapshot): snapshot is ArticleSnapshot => Boolean(snapshot));
 
   if (allItems.length === 0 && articleSnapshots.length === 0) return topic;
 
@@ -410,7 +427,7 @@ Return ONLY this JSON shape:
   });
 
   const parsed = JSON.parse(completion.choices[0].message.content ?? "{}");
-  const existingUrls = Array.isArray(topic.sourceUrls) ? topic.sourceUrls : [];
+  const existingUrls: string[] = Array.isArray(topic.sourceUrls) ? topic.sourceUrls : [];
   const newUrls = allItems.map((item) => item.link).filter(Boolean);
   const sourceNames = uniqueBy(
     allItems.map((item) => item.source).filter(Boolean),
@@ -439,26 +456,26 @@ Return ONLY this JSON shape:
   return enriched;
 }
 
-function normalizeStringArray(value, limit) {
+function normalizeStringArray(value: unknown, limit: number): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => compactString(item)).filter(Boolean).slice(0, limit);
 }
 
-function normalizeHotTopics(topics, newsItems) {
+function normalizeHotTopics(topics: unknown, newsItems: NewsItem[]) {
   if (!Array.isArray(topics)) return [];
 
   return topics
     .slice(0, 5)
-    .map((topic, index) => {
+    .map((topic: any, index) => {
       const rawIndexes = Array.isArray(topic?.sourceIndexes)
         ? topic.sourceIndexes
         : [topic?.sourceIndex ?? index + 1];
       const sourceIndexes = rawIndexes
-        .map((n) => Math.max(0, Number(n) - 1))
-        .filter((n) => Number.isFinite(n));
+        .map((n: unknown) => Math.max(0, Number(n) - 1))
+        .filter((n: number) => Number.isFinite(n));
       const sourceItems = uniqueBy(
-        sourceIndexes.map((i) => newsItems[i]).filter(Boolean),
-        (item) => item.title.toLowerCase()
+        sourceIndexes.map((i: number) => newsItems[i]).filter(Boolean),
+        (item: NewsItem) => item.title.toLowerCase()
       ).slice(0, 5);
       const primary = sourceItems[0] ?? newsItems[index] ?? null;
 
@@ -500,15 +517,16 @@ function normalizeHotTopics(topics, newsItems) {
     .filter((topic) => topic.short && topic.full);
 }
 
-app.get("/api/hot-topics", async (req, res) => {
+export async function handleHotTopics(req: Request): Promise<Response> {
   try {
     console.log("GET /api/hot-topics received");
 
-    const requestedCount = Number(req.query.count ?? 3);
+    const url = new URL(req.url);
+    const requestedCount = Number(url.searchParams.get("count") ?? 3);
     const count = Number.isFinite(requestedCount)
       ? Math.max(1, Math.min(5, requestedCount))
       : 3;
-    const refreshToken = compactString(req.query.refresh, "");
+    const refreshToken = compactString(url.searchParams.get("refresh"), "");
 
     const newsItems = await fetchAllNewsItems();
 
@@ -581,185 +599,26 @@ Return ONLY this JSON shape:
     });
 
     const text = completion.choices[0].message.content;
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(text ?? "{}");
     const baseTopics = normalizeHotTopics(parsed.topics, newsItems).slice(0, count);
     const enrichedResults = await Promise.allSettled(
       baseTopics.map((topic) => enrichTopicWithoutChangingIdentity(topic))
     );
     const topics = enrichedResults.map((result, index) => {
       const topic = result.status === "fulfilled" ? result.value : baseTopics[index];
-      const { sourceItems, ...publicTopic } = topic;
+      const { sourceItems: _sourceItems, ...publicTopic } = topic;
       return publicTopic;
     });
 
-    res.json({
+    return Response.json({
       topics: topics.length > 0 ? topics : NEWS_FALLBACK_TOPICS.slice(0, count),
       source: "multi-google-news-rss-groq-topic-preserving-detail-pack",
     });
   } catch (err) {
     console.error(err);
-    res.json({
+    return Response.json({
       topics: NEWS_FALLBACK_TOPICS,
       source: "fallback",
     });
   }
-});
-
-app.post("/api/feedback", async (req, res) => {
-  try {
-    console.log("POST /api/feedback received");
-
-    const { topicLabel, durationSec, transcript, newsContext } = req.body;
-
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `You are a small talk coach for English learners. Return only valid JSON. Be specific, practical, and friendly.
-
-The transcript has two speakers, tagged on every line:
-- "USER" is the human learner you are coaching. This is the ONLY person whose speaking you evaluate and improve.
-- "AI PARTNER" is the practice bot the learner talked to. Never coach, correct, or rewrite the AI PARTNER's lines.
-
-Strict role rules:
-- A "highlight" MUST quote a strong or useful line tagged USER, never AI PARTNER.
-- A "user_upgrade" moment MUST quote a line tagged USER, never AI PARTNER.
-- An "ai_phrase" moment MUST quote a line tagged AI PARTNER, never USER.
-- A "topic_opener" moment should usually quote a USER line where the learner could naturally ask a follow-up question.
-- suggestions.words must reference words the USER actually said.
-- Every "quote" you output for highlights and moments must be copied verbatim from a line with the matching speaker tag. If you cannot find a matching line, omit that item.
-- Vocabulary and culturalClues can quote either an exact transcript line or an exact phrase from the topic/news context.
-- conversationSummary summarizes what they talked about. It is not a score.
-- Do not invent news facts beyond the transcript or provided news context. You may explain general meanings, social norms, or cultural background in simple terms.
-- Use newsContext.details, keyQuotes, controversy, timeline, vocabulary, culturalClues, keyTerms, whyItMatters, and safeFraming when available.
-- You do NOT have raw audio. Do not claim to evaluate pitch, accent, volume, or true intonation.
-- You may discuss wording-level tone, confidence, engagement, response timing, and conversational flow.
-- Keep all notes short. The UI is a mobile feedback screen.`,
-        },
-        {
-          role: "user",
-          content: `Evaluate this small talk conversation.
-
-Topic: ${topicLabel}
-Duration: ${durationSec} seconds
-
-News context, if available:
-${newsContext ? JSON.stringify(newsContext, null, 2) : "None"}
-
-Transcript:
-${transcript}
-
-Return ONLY this JSON shape:
-
-{
-  "conversationSummary": "One short sentence summarizing what the user and AI talked about.",
-  "keywords": [
-    "Travel",
-    "Hobbies",
-    "Weekend plans"
-  ],
-  "highlights": [
-    {
-      "quote": "A strong USER line copied exactly",
-      "note": "One short reason this worked."
-    },
-    {
-      "quote": "Another strong USER line copied exactly",
-      "note": "One short reason this worked."
-    }
-  ],
-  "vocabulary": [
-    {
-      "term": "A topic-related word, phrase, idiom, slang, or news term",
-      "quote": "The transcript line or topic context where it appeared",
-      "meaning": "Simple beginner-friendly meaning",
-      "example": "A short example sentence using the term naturally",
-      "sayNextTime": "A natural sentence the user can reuse"
-    }
-  ],
-  "culturalClues": [
-    {
-      "title": "A cultural, social, or news-background point",
-      "quote": "The transcript line or topic context where this clue came from",
-      "explanation": "Simple explanation of the cultural or social context",
-      "trySaying": "A natural follow-up sentence the user can try"
-    }
-  ],
-  "suggestions": {
-    "words": [
-      "You said ___. Try ___ because ___."
-    ],
-    "stalls": [
-      "Let me think about that for a second."
-    ],
-    "tips": [
-      "A practical coaching tip based on the user's actual conversation."
-    ]
-  },
-  "moments": [
-    {
-      "type": "user_upgrade",
-      "title": "Make your line more natural",
-      "quote": "The user's original sentence copied exactly",
-      "explanation": "Explain why this sentence can be improved.",
-      "suggestion": "A more natural version the user could say."
-    },
-    {
-      "type": "ai_phrase",
-      "title": "Useful phrase from the AI",
-      "quote": "A natural phrase the AI used copied exactly",
-      "explanation": "Explain the slang, idiom, softener, filler, or casual phrase.",
-      "suggestion": "A reusable sentence pattern."
-    },
-    {
-      "type": "topic_opener",
-      "title": "Topic opener to try next time",
-      "quote": "A USER sentence where a follow-up could fit",
-      "explanation": "Explain why this was a good chance to continue the conversation.",
-      "suggestion": "A natural follow-up question or topic opener."
-    }
-  ]
 }
-
-Rules:
-- conversationSummary should summarize what the conversation was about, not score the user.
-- Do not score the user. The app already calculates Vibe, Fluency, Tone, Confidence, Stamina, and Cultural Fit locally.
-- keywords should include 2 to 4 short topic chips.
-- highlights should include exactly 2 items when possible, both from USER lines.
-- vocabulary should include 2 to 5 items when the topic has useful words, idioms, slang, or news terms.
-- culturalClues should include 1 to 3 items when the topic has cultural, social, or current-events context worth knowing.
-- Include vocabulary and culturalClues even if the USER seems to understand; they are study notes for the topic.
-- Put word meanings, idioms, slang, and news terms in vocabulary.
-- Put social norms, cultural references, sensitive-topic framing, and background context in culturalClues.
-- vocabulary.quote and culturalClues.quote should be copied from the transcript when possible; otherwise use the topic/news context.
-- Use provided newsContext.details, keyTerms, whyItMatters, and safeFraming for topic-related vocabulary and cultural clues.
-- suggestions.words should include 2 to 4 word upgrades.
-- suggestions.stalls should include 3 to 5 natural stalling phrases.
-- suggestions.tips should include 2 to 4 coaching tips.
-- moments should include 3 to 6 items.
-- Include slang or casual phrase explanations when possible.
-- Include at least one topic opener suggestion.
-- Keep every title under 7 words and every explanation under 18 words.
-- Do not invent news facts beyond the transcript or news context.`,
-        },
-      ],
-    });
-
-    const text = completion.choices[0].message.content;
-    const result = JSON.parse(text);
-
-    res.json(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      error: "Groq feedback generation failed",
-    });
-  }
-});
-
-app.listen(3000, () => {
-  console.log("Groq API running on http://localhost:3000");
-});

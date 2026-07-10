@@ -55,6 +55,9 @@ coverage/
 
 app-example
 
+# local docs & session work reviews (local notes, never committed)
+/docs/
+
 # generated native folders
 /ios
 /android

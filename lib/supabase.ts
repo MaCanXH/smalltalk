@@ -30,3 +30,29 @@ export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "", {
     detectSessionInUrl: false,
   },
 });
+
+/**
+ * Auth headers for requests to this project's Edge Functions, which verify a
+ * Supabase JWT before running. Signed-in users send their own access token;
+ * skipped/offline users fall back to the anon key, which also passes the
+ * platform check. Empty when Supabase isn't configured (e.g. the feedback URL
+ * points at a local dev server instead).
+ */
+export async function getFunctionsAuthHeaders(): Promise<Record<string, string>> {
+  if (!isSupabaseConfigured) return {};
+
+  let token = supabaseAnonKey ?? "";
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.access_token) token = data.session.access_token;
+  } catch {
+    // Session lookup failing shouldn't block the request; the anon key works.
+  }
+
+  if (!token) return {};
+
+  return {
+    Authorization: `Bearer ${token}`,
+    apikey: supabaseAnonKey ?? "",
+  };
+}
