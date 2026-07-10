@@ -12,9 +12,8 @@ import { useAppData } from "../../context/AppDataContext";
 import { buildAiResult } from "../../lib/ai/critic";
 import { buildResult } from "../../lib/ai/scoring";
 import {
-  buildAssistantOverrides,
   createVapiClient,
-  readVapiConfig,
+  fetchVapiSession,
   summarizeVapiError,
   type VapiClient,
 } from "../../lib/ai/vapi";
@@ -258,111 +257,100 @@ export default function ActiveSession() {
     setError(null);
     setEnding(false);
     amplitude.value = withTiming(0, { duration: 120 });
-    const config = readVapiConfig();
-
-    if (!config) {
-      finishedRef.current = true;
-      setMode("idle");
-      setError(
-        "Missing Vapi configuration. Set EXPO_PUBLIC_VAPI_PUBLIC_KEY and EXPO_PUBLIC_VAPI_ASSISTANT_ID, then restart Expo."
-      );
-      return () => {
-        active = false;
-        finishedRef.current = true;
-        finishScheduledRef.current = false;
-        clearFinishTimer();
-        amplitude.value = withTiming(0, { duration: 120 });
-      };
-    }
-
-    const client = createVapiClient(config.publicKey);
-    vapiRef.current = client;
-
-    const startLocalAudioMeter = () => {
-      let daily: DailyAudioCall | null = null;
-      try {
-        daily = client.getDailyCallObject() as DailyAudioCall | null;
-      } catch {
-        daily = null;
-      }
-      if (!daily) return;
-      dailyAudioRef.current = daily;
-      const onLocal = (ev: LocalAudioEvent) => {
-        if (!active || finishedRef.current || finishScheduledRef.current) return;
-        // Only drive the orb from the user's mic during their turn; the AI's
-        // turn is driven by the assistant `volume-level` event instead.
-        if (modeRef.current !== "listening") return;
-        const level = Math.max(0, Math.min(1, (ev?.audioLevel ?? 0) / LOCAL_LEVEL_GAIN));
-        amplitude.value = withTiming(level, { duration: 90 });
-      };
-      localAudioHandlerRef.current = onLocal;
-      daily.on("local-audio-level", onLocal);
-      void Promise.resolve(daily.startLocalAudioLevelObserver(100)).catch(() => undefined);
-    };
-
-    client.on("call-start", () => {
-      if (!active || finishedRef.current || finishScheduledRef.current) return;
-      setMode("listening");
-      startLocalAudioMeter();
-    });
-
-    client.on("call-end", () => {
-      if (!active || finishedRef.current) return;
-      scheduleFinish(true);
-    });
-
-    client.on("speech-start", () => {
-      if (!active || finishedRef.current || finishScheduledRef.current) return;
-      setMode("speaking");
-    });
-
-    client.on("speech-end", () => {
-      if (!active || finishedRef.current || finishScheduledRef.current) return;
-      setMode("listening");
-      amplitude.value = withTiming(0, { duration: 90 });
-    });
-
-    client.on("volume-level", (volume) => {
-      if (!active || finishedRef.current || finishScheduledRef.current) return;
-      // Assistant output level — only relevant while the AI is speaking.
-      if (modeRef.current !== "speaking") return;
-      const clamped = Math.max(0, Math.min(1, volume));
-      amplitude.value = withTiming(clamped, { duration: 90 });
-    });
-
-    client.on("message", (message) => {
-      if (!active || finishedRef.current) return;
-      syncTranscriptFromMessage(message);
-      if (isVapiEndedMessage(message)) {
-        scheduleFinish(true);
-      }
-    });
-
-    client.on("error", (err) => {
-      if (!active || finishedRef.current || finishScheduledRef.current) return;
-      if (dialogRef.current.some((turn) => turn.speaker === "user")) {
-        scheduleFinish(true, 0);
-        return;
-      }
-
-      finishedRef.current = true;
-      finishScheduledRef.current = false;
-      clearFinishTimer();
-      setMode("idle");
-      setEnding(false);
-      setError(summarizeVapiError(err));
-      amplitude.value = withTiming(0, { duration: 120 });
-
-      stopLocalAudioMeter();
-      const currentClient = vapiRef.current;
-      vapiRef.current = null;
-      stopClient(currentClient);
-    });
-
     (async () => {
       if (!active || finishedRef.current) return;
       setMode("thinking");
       try {
+        // The Vapi credentials and per-call overrides are issued by the
+        // backend Edge Function (JWT-gated); nothing Vapi-related ships in
+        // the bundle or in client env vars.
+        const session = await fetchVapiSession(title ?? undefined, newsContext);
+        if (!active || finishedRef.current || finishScheduledRef.current) return;
+
+        const client = createVapiClient(session.publicKey);
+        vapiRef.current = client;
+
+        const startLocalAudioMeter = () => {
+          let daily: DailyAudioCall | null = null;
+          try {
+            daily = client.getDailyCallObject() as DailyAudioCall | null;
+          } catch {
+            daily = null;
+          }
+          if (!daily) return;
+          dailyAudioRef.current = daily;
+          const onLocal = (ev: LocalAudioEvent) => {
+            if (!active || finishedRef.current || finishScheduledRef.current) return;
+            // Only drive the orb from the user's mic during their turn; the AI's
+            // turn is driven by the assistant `volume-level` event instead.
+            if (modeRef.current !== "listening") return;
+            const level = Math.max(0, Math.min(1, (ev?.audioLevel ?? 0) / LOCAL_LEVEL_GAIN));
+            amplitude.value = withTiming(level, { duration: 90 });
+          };
+          localAudioHandlerRef.current = onLocal;
+          daily.on("local-audio-level", onLocal);
+          void Promise.resolve(daily.startLocalAudioLevelObserver(100)).catch(() => undefined);
+        };
+
+        client.on("call-start", () => {
+          if (!active || finishedRef.current || finishScheduledRef.current) return;
+          setMode("listening");
+          startLocalAudioMeter();
+        });
+
+        client.on("call-end", () => {
+          if (!active || finishedRef.current) return;
+          scheduleFinish(true);
+        });
+
+        client.on("speech-start", () => {
+          if (!active || finishedRef.current || finishScheduledRef.current) return;
+          setMode("speaking");
+        });
+
+        client.on("speech-end", () => {
+          if (!active || finishedRef.current || finishScheduledRef.current) return;
+          setMode("listening");
+          amplitude.value = withTiming(0, { duration: 90 });
+        });
+
+        client.on("volume-level", (volume) => {
+          if (!active || finishedRef.current || finishScheduledRef.current) return;
+          // Assistant output level — only relevant while the AI is speaking.
+          if (modeRef.current !== "speaking") return;
+          const clamped = Math.max(0, Math.min(1, volume));
+          amplitude.value = withTiming(clamped, { duration: 90 });
+        });
+
+        client.on("message", (message) => {
+          if (!active || finishedRef.current) return;
+          syncTranscriptFromMessage(message);
+          if (isVapiEndedMessage(message)) {
+            scheduleFinish(true);
+          }
+        });
+
+        client.on("error", (err) => {
+          if (!active || finishedRef.current || finishScheduledRef.current) return;
+          if (dialogRef.current.some((turn) => turn.speaker === "user")) {
+            scheduleFinish(true, 0);
+            return;
+          }
+
+          finishedRef.current = true;
+          finishScheduledRef.current = false;
+          clearFinishTimer();
+          setMode("idle");
+          setEnding(false);
+          setError(summarizeVapiError(err));
+          amplitude.value = withTiming(0, { duration: 120 });
+
+          stopLocalAudioMeter();
+          const currentClient = vapiRef.current;
+          vapiRef.current = null;
+          stopClient(currentClient);
+        });
+
         // RECORD_AUDIO is a runtime permission on Android (and iOS prompts on
         // first use). Without it the WebRTC mic track stays silent: the call
         // connects and the AI talks, but Vapi never receives the user's voice.
@@ -373,10 +361,7 @@ export default function ActiveSession() {
             "Microphone access is off, so Vapi can't hear you. Enable the microphone permission for Small Talk in system settings, then try again."
           );
         }
-        const started = await client.start(
-          config.assistantId,
-          buildAssistantOverrides(title ?? undefined, newsContext)
-        );
+        const started = await client.start(session.assistantId, session.overrides);
         if (!active || finishedRef.current || finishScheduledRef.current) return;
         if (!started) {
           throw new Error("The Vapi call could not be started.");
@@ -391,8 +376,9 @@ export default function ActiveSession() {
         setError(summarizeVapiError(err));
         amplitude.value = withTiming(0, { duration: 120 });
         stopLocalAudioMeter();
+        const currentClient = vapiRef.current;
         vapiRef.current = null;
-        stopClient(client);
+        stopClient(currentClient);
       }
     })();
 
@@ -418,8 +404,9 @@ export default function ActiveSession() {
       clearFinishTimer();
       amplitude.value = withTiming(0, { duration: 120 });
       stopLocalAudioMeter();
+      const currentClient = vapiRef.current;
       vapiRef.current = null;
-      stopClient(client);
+      stopClient(currentClient);
     };
   }, [
     amplitude,

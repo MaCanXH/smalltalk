@@ -1,5 +1,7 @@
 import type { NewsTopic } from "../../types";
 
+import { getBackendBaseUrl } from "../backend";
+
 /**
  * Trending topics now come from our backend, not directly from the app.
  *
@@ -136,13 +138,6 @@ export function shortenHeadline(full: string): string {
     return `${words.slice(0, MAX_WORDS).join(" ")}…`;
   }
   return base;
-}
-
-function getBackendBaseUrl(): string | null {
-  const feedbackUrl = process.env.EXPO_PUBLIC_FEEDBACK_API_URL?.trim();
-  if (!feedbackUrl) return null;
-
-  return feedbackUrl.replace(/\/api\/feedback\/?$/, "").replace(/\/$/, "");
 }
 
 function normalizeStringArray(value: unknown, limit: number): string[] {

@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
   },
   refreshBtn: {
     borderWidth: 1,
-    borderRadius: radius.full,
+    borderRadius: radius.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
   },

@@ -11,8 +11,8 @@ The Groq feedback/hot-topics backend is a **deployed Supabase Edge Function** (`
 
 ## 0. Preconditions
 
-- `.env` at the repo root must contain `EXPO_PUBLIC_VAPI_PUBLIC_KEY`, `EXPO_PUBLIC_VAPI_ASSISTANT_ID`, and `EXPO_PUBLIC_FEEDBACK_API_URL` (already present in this repo). Expo CLI auto-loads `.env`. Do not print the values.
-- `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` enable auth + cloud sync, and are also used to authenticate calls to the Edge Function. Without them the app still runs, but sign-in is skipped, everything stays on-device, and the backend (which requires a Supabase JWT) is unreachable — topics and feedback fall back to their offline paths.
+- `.env` at the repo root must contain `EXPO_PUBLIC_FEEDBACK_API_URL` (already present in this repo). Expo CLI auto-loads `.env`. Do not print the values. There are no client-side Vapi env vars — the live session fetches its Vapi config from the Edge Function's `/api/vapi/session` route.
+- `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` enable auth + cloud sync, and authenticate all calls to the Edge Function. Without them the app still runs, but sign-in is skipped, everything stays on-device, and the backend (which requires a Supabase JWT) is unreachable — topics and feedback fall back to their offline paths, and **live voice sessions cannot start**.
 - `GROQ_API_KEY` in `.env` is only needed when serving the Edge Function locally (`npx supabase functions serve api --env-file .env --no-verify-jwt`); the deployed function reads it from Supabase secrets.
 - This app runs as a **native dev build**, not Expo Go.
 
@@ -69,7 +69,7 @@ npx expo prebuild --platform android --clean
 - Metro logs show `Android Bundled` after the app connects.
 - `adb shell pidof com.macanxhs.smalltalk` returns a PID once the app is running.
 - When Supabase env vars are set, the app opens on a **sign-in gate** (Google / magic link / "Continue offline"); tap "Continue offline" to reach the tabs without an account.
-- The Talk tab loads hot topics from the Edge Function; starting a session requires the Vapi env vars (a "Missing Vapi configuration" error means Metro was started without `.env` loaded).
+- The Talk tab loads hot topics from the Edge Function; starting a session fetches the Vapi config from `/api/vapi/session` (a "Missing backend configuration" error means Metro was started without `.env` loaded; "The voice session could not be prepared" means the Edge Function rejected or failed the request — check its logs).
 
 ## Troubleshooting
 

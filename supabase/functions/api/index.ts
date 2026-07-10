@@ -1,5 +1,6 @@
 import { handleFeedback } from "./feedback.ts";
 import { handleHotTopics } from "./hotTopics.ts";
+import { handleVapiSession } from "./vapiSession.ts";
 
 /**
  * Small Talk backend, ported from server.mjs. Deployed as a single Edge
@@ -37,6 +38,10 @@ Deno.serve(async (req) => {
 
   if (req.method === "POST" && pathname.endsWith("/feedback")) {
     return withCors(await handleFeedback(req));
+  }
+
+  if (req.method === "POST" && pathname.endsWith("/vapi/session")) {
+    return withCors(await handleVapiSession(req));
   }
 
   return withCors(Response.json({ error: "Not found" }, { status: 404 }));
