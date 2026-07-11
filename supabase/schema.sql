@@ -74,6 +74,19 @@ create table if not exists public.call_reports (
 );
 create index if not exists call_reports_user_id_idx on public.call_reports (user_id);
 
+-- ---------- hot_topics_cache (server-side topic-pack cache) ----------
+-- Written only by the api Edge Function (service role). One row: the latest
+-- generated topic pack, served to all users for ~20 min so the news feeds and
+-- Groq run a few times per hour instead of on every Talk-tab load (Google
+-- rate-limits the shared egress IP when hammered). Stale rows are served in
+-- preference to canned fallbacks when regeneration fails.
+create table if not exists public.hot_topics_cache (
+  cache_key  text primary key,
+  topics     jsonb not null,
+  source     text,
+  created_at timestamptz not null default now()
+);
+
 -- ============================================================
 -- Row Level Security — each user only sees/writes their own rows
 -- ============================================================
@@ -84,6 +97,10 @@ alter table public.saved_phrases enable row level security;
 -- vapi_call_grants: RLS on with NO policies — only the service role (used by
 -- the Edge Function) can read or write; clients have no access at all.
 alter table public.vapi_call_grants enable row level security;
+
+-- hot_topics_cache: RLS on with NO policies — service role only; clients get
+-- topics through the Edge Function, never from this table directly.
+alter table public.hot_topics_cache enable row level security;
 
 -- call_reports: users may READ their own reports (canonical transcripts);
 -- writes stay service-role-only (no insert/update policy).

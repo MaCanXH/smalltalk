@@ -1,4 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
+import { createClient } from "npm:@supabase/supabase-js@2";
+
 import { groq } from "./groq.ts";
 
 /**
@@ -23,34 +25,46 @@ interface ArticleSnapshot {
   text: string;
 }
 
-const GOOGLE_NEWS_FEEDS = [
+/**
+ * Mixed-source feed list on purpose: Google's datacenter-IP throttling took
+ * all topics down when it was the only source (every feed 503'd from the
+ * Edge Function egress on 2026-07-11). BBC/NPR/ESPN/CBS serve RSS to cloud
+ * IPs without blocking; Google Top Stories stays because its headlines are
+ * the best when it answers, and a failed feed degrades gracefully.
+ * All must be RSS 2.0 with `<item>` tags — the parser doesn't speak Atom.
+ */
+const NEWS_FEEDS = [
   {
     sourceGroup: "Google News Top Stories",
     url: "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
   },
   {
-    sourceGroup: "Google News U.S.",
-    url: "https://news.google.com/rss/headlines/section/topic/NATION?hl=en-US&gl=US&ceid=US:en",
+    sourceGroup: "BBC World",
+    url: "https://feeds.bbci.co.uk/news/world/rss.xml",
   },
   {
-    sourceGroup: "Google News World",
-    url: "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
+    sourceGroup: "BBC Technology",
+    url: "https://feeds.bbci.co.uk/news/technology/rss.xml",
   },
   {
-    sourceGroup: "Google News Sports",
-    url: "https://news.google.com/rss/headlines/section/topic/SPORTS?hl=en-US&gl=US&ceid=US:en",
+    sourceGroup: "BBC Entertainment",
+    url: "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
   },
   {
-    sourceGroup: "Google News Technology",
-    url: "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en",
+    sourceGroup: "BBC Business",
+    url: "https://feeds.bbci.co.uk/news/business/rss.xml",
   },
   {
-    sourceGroup: "Google News Entertainment",
-    url: "https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en",
+    sourceGroup: "NPR News",
+    url: "https://feeds.npr.org/1001/rss.xml",
   },
   {
-    sourceGroup: "Google News Business",
-    url: "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en",
+    sourceGroup: "ESPN Sports",
+    url: "https://www.espn.com/espn/rss/news",
+  },
+  {
+    sourceGroup: "CBS News",
+    url: "https://www.cbsnews.com/latest/rss/main",
   },
 ];
 
@@ -203,23 +217,213 @@ function extractNewsItems(xml: string, sourceGroup: string): NewsItem[] {
     .filter((item) => item.title.length > 0);
 }
 
-async function fetchAllNewsItems(): Promise<NewsItem[]> {
-  const responses = await Promise.allSettled(
-    GOOGLE_NEWS_FEEDS.map(async (feed) => {
-      const response = await fetch(feed.url);
-      if (!response.ok) {
-        throw new Error(`${feed.sourceGroup} failed with status ${response.status}`);
-      }
+/**
+ * Google throttles UA-less requests from datacenter IPs (the Edge Function's
+ * egress) far more aggressively than browser-looking ones, and sometimes
+ * serves a consent interstitial instead of the feed. Browser-like headers +
+ * the consent cookie keep the RSS endpoints answering with real XML.
+ */
+const FEED_REQUEST_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  Accept:
+    "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.7",
+  Cookie: "CONSENT=YES+",
+};
+
+const FEED_FETCH_ATTEMPTS = 2;
+
+/**
+ * Fetch one RSS feed with a single retry and per-attempt diagnostics — the
+ * function logs are the only place to see *how* Google is failing us
+ * (429/403 vs a 200 consent page with zero <item> tags).
+ */
+async function fetchFeedItems(url: string, sourceGroup: string): Promise<NewsItem[]> {
+  let lastFailure = "unknown";
+
+  for (let attempt = 1; attempt <= FEED_FETCH_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(url, { headers: FEED_REQUEST_HEADERS });
       const xml = await response.text();
-      return extractNewsItems(xml, feed.sourceGroup);
-    })
+
+      if (!response.ok) {
+        lastFailure = `status ${response.status} (body ${xml.length} bytes)`;
+        console.warn(`[hot-topics] ${sourceGroup} attempt ${attempt}: ${lastFailure}`);
+      } else {
+        const items = extractNewsItems(xml, sourceGroup);
+        if (items.length > 0) return items;
+
+        const consentHint = /consent\.google\.com|Before you continue/i.test(xml)
+          ? ", looks like a consent page"
+          : "";
+        lastFailure = `status 200 but 0 items (body ${xml.length} bytes${consentHint})`;
+        console.warn(`[hot-topics] ${sourceGroup} attempt ${attempt}: ${lastFailure}`);
+      }
+    } catch (err) {
+      lastFailure = (err as Error)?.message ?? String(err);
+      console.warn(`[hot-topics] ${sourceGroup} attempt ${attempt} threw: ${lastFailure}`);
+    }
+
+    if (attempt < FEED_FETCH_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 400));
+    }
+  }
+
+  throw new Error(lastFailure);
+}
+
+async function fetchAllNewsItems(): Promise<{ items: NewsItem[]; failures: string[] }> {
+  const responses = await Promise.allSettled(
+    NEWS_FEEDS.map((feed) => fetchFeedItems(feed.url, feed.sourceGroup))
   );
 
-  const items = responses.flatMap((result) =>
-    result.status === "fulfilled" ? result.value : []
+  const failures: string[] = [];
+  const items = responses.flatMap((result, index) => {
+    if (result.status === "fulfilled") return result.value;
+    failures.push(
+      `${NEWS_FEEDS[index].sourceGroup}: ${
+        (result.reason as Error)?.message ?? result.reason
+      }`
+    );
+    return [];
+  });
+
+  if (failures.length > 0) {
+    console.warn(
+      `[hot-topics] ${failures.length}/${NEWS_FEEDS.length} feeds failed — ${failures.join(" | ")}`
+    );
+  }
+
+  return {
+    items: uniqueBy(items, (item) => item.title.toLowerCase()).slice(0, MAX_NEWS_ITEMS),
+    failures,
+  };
+}
+
+// ----- topic-pack cache ------------------------------------------------------
+
+/**
+ * One cached pack of GENERATED_TOPIC_COUNT topics serves every request for
+ * CACHE_FRESH_MS — scraping + Groq run at most ~3×/hour instead of on every
+ * Talk-tab load (the hammering is what got the egress IP blocked by Google).
+ * A user "refresh" re-rolls the selection from the cached pack rather than
+ * regenerating. When regeneration fails, the stale pack is served instead of
+ * the canned fallbacks. Cache errors fail open (generate as before).
+ */
+const TOPIC_CACHE_KEY = "hot-topics-v1";
+const CACHE_FRESH_MS = 20 * 60 * 1000;
+const GENERATED_TOPIC_COUNT = 20;
+
+/**
+ * Groq's free tier caps llama-3.1-8b-instant at 6,000 tokens/minute, and the
+ * TPM check counts prompt + max_tokens up front (a 413, not retried by the
+ * SDK). Everything below is sized against that budget: the headline pool and
+ * snippet lengths keep the generation prompt ~2k tokens, max_tokens stays
+ * under ~3.5k, and only the first ENRICHED_TOPIC_COUNT topics get the
+ * (token-hungry) enrichment pass — the rest ship with their base details.
+ */
+const MAX_NEWS_ITEMS = 36;
+const ENRICHED_TOPIC_COUNT = 5;
+
+interface CachedTopicPack {
+  topics: any[];
+  source: string;
+  createdAt: number;
+}
+
+function getAdminClient() {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) return null;
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+async function readTopicCache(): Promise<CachedTopicPack | null> {
+  const admin = getAdminClient();
+  if (!admin) return null;
+
+  const { data, error } = await admin
+    .from("hot_topics_cache")
+    .select("topics, source, created_at")
+    .eq("cache_key", TOPIC_CACHE_KEY)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[hot-topics] cache read failed:", error.message);
+    return null;
+  }
+  if (!data || !Array.isArray(data.topics) || data.topics.length === 0) return null;
+
+  return {
+    topics: data.topics,
+    source: typeof data.source === "string" && data.source ? data.source : "cache",
+    createdAt: new Date(data.created_at).getTime(),
+  };
+}
+
+async function writeTopicCache(topics: any[], source: string): Promise<void> {
+  const admin = getAdminClient();
+  if (!admin) return;
+
+  const { error } = await admin.from("hot_topics_cache").upsert(
+    {
+      cache_key: TOPIC_CACHE_KEY,
+      topics,
+      source,
+      created_at: new Date().toISOString(),
+    },
+    { onConflict: "cache_key" },
+  );
+  if (error) console.warn("[hot-topics] cache write failed:", error.message);
+}
+
+function shuffled<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+/** Guards against concurrent stale hits piling up duplicate rebuilds (per isolate). */
+let revalidationInFlight = false;
+
+/**
+ * Stale-while-revalidate: rebuild the pack *behind* the response via
+ * `EdgeRuntime.waitUntil`, so a stale cache costs the user ~1s instead of the
+ * ~50s regeneration. Returns false only when the runtime doesn't expose
+ * waitUntil (the caller then falls back to blocking regeneration); an
+ * already-running rebuild counts as handled.
+ */
+function scheduleRevalidation(refreshToken: string): boolean {
+  const runtime = (globalThis as any).EdgeRuntime;
+  if (typeof runtime?.waitUntil !== "function") return false;
+
+  if (revalidationInFlight) return true;
+  revalidationInFlight = true;
+
+  runtime.waitUntil(
+    (async () => {
+      try {
+        console.log("[hot-topics] background revalidation started");
+        const pack = await generateTopicPack(refreshToken);
+        await writeTopicCache(pack.topics, pack.source);
+        console.log("[hot-topics] background revalidation completed");
+      } catch (err) {
+        console.error(
+          "[hot-topics] background revalidation failed:",
+          (err as Error)?.message ?? err,
+        );
+      } finally {
+        revalidationInFlight = false;
+      }
+    })(),
   );
 
-  return uniqueBy(items, (item) => item.title.toLowerCase()).slice(0, 36);
+  return true;
 }
 
 function buildGoogleNewsSearchUrl(query: string): string {
@@ -250,8 +454,13 @@ function buildRelatedNewsQuery(topic: any, sourceItems: NewsItem[]): string {
 async function fetchRelatedNewsItems(query: string): Promise<NewsItem[]> {
   if (!query) return [];
   try {
-    const response = await fetch(buildGoogleNewsSearchUrl(query));
-    if (!response.ok) return [];
+    const response = await fetch(buildGoogleNewsSearchUrl(query), {
+      headers: FEED_REQUEST_HEADERS,
+    });
+    if (!response.ok) {
+      console.warn(`[hot-topics] related search: status ${response.status}`);
+      return [];
+    }
     const xml = await response.text();
     return extractNewsItems(xml, "Google News Related Search").slice(0, 8);
   } catch (err) {
@@ -338,10 +547,10 @@ async function enrichTopicWithoutChangingIdentity(topic: any): Promise<any> {
   const allItems = uniqueBy(
     [...baseSourceItems, ...relatedItems],
     (item) => item.title.toLowerCase()
-  ).slice(0, 10);
+  ).slice(0, 8);
 
   const articleSnapshots = (
-    await Promise.all(allItems.slice(0, 3).map((item) => fetchArticleSnapshot(item.link)))
+    await Promise.all(allItems.slice(0, 2).map((item) => fetchArticleSnapshot(item.link)))
   ).filter((snapshot): snapshot is ArticleSnapshot => Boolean(snapshot));
 
   if (allItems.length === 0 && articleSnapshots.length === 0) return topic;
@@ -382,7 +591,7 @@ ${allItems
     (item, i) =>
       `${i + 1}. ${item.title}${item.source ? ` (${item.source})` : ""}${
         item.pubDate ? ` [${item.pubDate}]` : ""
-      }${item.description ? `\n   Snippet: ${item.description.slice(0, 360)}` : ""}`
+      }${item.description ? `\n   Snippet: ${item.description.slice(0, 240)}` : ""}`
   )
   .join("\n")}
 
@@ -390,7 +599,7 @@ Article snapshots, if any:
 ${articleSnapshots
   .map(
     (article, i) =>
-      `ARTICLE ${i + 1}: ${article.title}\nURL: ${article.url}\n${article.text.slice(0, 2200)}`
+      `ARTICLE ${i + 1}: ${article.title}\nURL: ${article.url}\n${article.text.slice(0, 1400)}`
   )
   .join("\n\n")}
 
@@ -465,7 +674,7 @@ function normalizeHotTopics(topics: unknown, newsItems: NewsItem[]) {
   if (!Array.isArray(topics)) return [];
 
   return topics
-    .slice(0, 5)
+    .slice(0, GENERATED_TOPIC_COUNT)
     .map((topic: any, index) => {
       const rawIndexes = Array.isArray(topic?.sourceIndexes)
         ? topic.sourceIndexes
@@ -517,31 +726,29 @@ function normalizeHotTopics(topics: unknown, newsItems: NewsItem[]) {
     .filter((topic) => topic.short && topic.full);
 }
 
-export async function handleHotTopics(req: Request): Promise<Response> {
-  try {
-    console.log("GET /api/hot-topics received");
+/** Scrape the feeds and build a full pack of GENERATED_TOPIC_COUNT topics. */
+async function generateTopicPack(
+  refreshToken: string,
+): Promise<{ topics: any[]; source: string }> {
+  const { items: newsItems, failures } = await fetchAllNewsItems();
 
-    const url = new URL(req.url);
-    const requestedCount = Number(url.searchParams.get("count") ?? 3);
-    const count = Number.isFinite(requestedCount)
-      ? Math.max(1, Math.min(5, requestedCount))
-      : 3;
-    const refreshToken = compactString(url.searchParams.get("refresh"), "");
+  if (newsItems.length === 0) {
+    throw new Error(
+      `No news items found. Feed failures: ${failures.join(" | ") || "none reported"}`
+    );
+  }
 
-    const newsItems = await fetchAllNewsItems();
-
-    if (newsItems.length === 0) {
-      throw new Error("No Google News items found.");
-    }
-
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      temperature: refreshToken ? 0.35 : 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `You turn current news RSS items into safe, beginner-friendly small-talk topic packs.
+  const completion = await groq.chat.completions.create({
+    model: "llama-3.1-8b-instant",
+    temperature: refreshToken ? 0.35 : 0.2,
+    response_format: { type: "json_object" },
+    // Large enough for 20 compact topic packs, small enough that
+    // prompt + max_tokens stays under Groq's 6k TPM check.
+    max_tokens: 3400,
+    messages: [
+      {
+        role: "system",
+        content: `You turn current news RSS items into safe, beginner-friendly small-talk topic packs.
 
 Return only valid JSON.
 
@@ -554,21 +761,21 @@ Rules:
 - The details should be factual, compact, and based on the supplied items.
 - The safeFraming should tell the AI how to keep the conversation socially appropriate.
 - Keep everything compact for a mobile app and a short voice prompt.`,
-        },
-        {
-          role: "user",
-          content: `Here are current news items from several Google News RSS sections. Use the item numbers as sourceIndexes.
+      },
+      {
+        role: "user",
+        content: `Here are current news items from several news RSS feeds. Use the item numbers as sourceIndexes.
 
 ${newsItems
   .map(
     (item, i) =>
       `${i + 1}. ${item.title}${item.source ? ` (${item.source})` : ""}${
         item.sourceGroup ? ` [${item.sourceGroup}]` : ""
-      }${item.description ? `\n   Snippet: ${item.description.slice(0, 220)}` : ""}`
+      }${item.description ? `\n   Snippet: ${item.description.slice(0, 160)}` : ""}`
   )
   .join("\n")}
 
-Choose ${count} good small-talk topics.
+Choose ${GENERATED_TOPIC_COUNT} good small-talk topics.
 
 Return ONLY this JSON shape:
 
@@ -594,31 +801,104 @@ Return ONLY this JSON shape:
     }
   ]
 }`,
-        },
-      ],
-    });
+      },
+    ],
+  });
 
-    const text = completion.choices[0].message.content;
-    const parsed = JSON.parse(text ?? "{}");
-    const baseTopics = normalizeHotTopics(parsed.topics, newsItems).slice(0, count);
-    const enrichedResults = await Promise.allSettled(
-      baseTopics.map((topic) => enrichTopicWithoutChangingIdentity(topic))
-    );
-    const topics = enrichedResults.map((result, index) => {
-      const topic = result.status === "fulfilled" ? result.value : baseTopics[index];
-      const { sourceItems: _sourceItems, ...publicTopic } = topic;
-      return publicTopic;
-    });
+  const text = completion.choices[0].message.content;
+  const parsed = JSON.parse(text ?? "{}");
+  const baseTopics = normalizeHotTopics(parsed.topics, newsItems).slice(
+    0,
+    GENERATED_TOPIC_COUNT,
+  );
+  // Enrich only the head of the pack (the topics non-refresh users see);
+  // enriching all 20 would burn ~10 minutes of Groq TPM budget per rebuild.
+  const enrichedResults = await Promise.allSettled(
+    baseTopics
+      .slice(0, ENRICHED_TOPIC_COUNT)
+      .map((topic) => enrichTopicWithoutChangingIdentity(topic))
+  );
+  const topics = baseTopics.map((topic, index) => {
+    const enriched =
+      index < enrichedResults.length && enrichedResults[index].status === "fulfilled"
+        ? (enrichedResults[index] as PromiseFulfilledResult<any>).value
+        : topic;
+    const { sourceItems: _sourceItems, ...publicTopic } = enriched;
+    return publicTopic;
+  });
 
+  if (topics.length === 0) {
+    throw new Error("Topic generation produced no topics.");
+  }
+
+  return { topics, source: "multi-source-rss-groq-topic-preserving-detail-pack" };
+}
+
+export async function handleHotTopics(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const requestedCount = Number(url.searchParams.get("count") ?? 3);
+  const count = Number.isFinite(requestedCount)
+    ? Math.max(1, Math.min(5, requestedCount))
+    : 3;
+  const refreshToken = compactString(url.searchParams.get("refresh"), "");
+  const debugRequested = url.searchParams.get("debug") === "1";
+
+  const cached = await readTopicCache();
+  const cacheAge = cached ? Date.now() - cached.createdAt : Number.POSITIVE_INFINITY;
+
+  if (cached && cacheAge < CACHE_FRESH_MS) {
+    console.log(`GET /api/hot-topics served from cache (age ${Math.round(cacheAge / 1000)}s)`);
+    const pool = refreshToken ? shuffled(cached.topics) : cached.topics;
     return Response.json({
-      topics: topics.length > 0 ? topics : NEWS_FALLBACK_TOPICS.slice(0, count),
-      source: "multi-google-news-rss-groq-topic-preserving-detail-pack",
+      topics: pool.slice(0, count),
+      source: cached.source,
+      cached: true,
+    });
+  }
+
+  // Stale cache: answer with it immediately and rebuild behind the response —
+  // nobody waits out the regeneration interactively.
+  if (cached && scheduleRevalidation(refreshToken)) {
+    console.log(
+      `GET /api/hot-topics served stale cache (age ${Math.round(cacheAge / 1000)}s), revalidating in background`,
+    );
+    const pool = refreshToken ? shuffled(cached.topics) : cached.topics;
+    return Response.json({
+      topics: pool.slice(0, count),
+      source: cached.source,
+      cached: true,
+      stale: true,
+    });
+  }
+
+  try {
+    console.log("GET /api/hot-topics regenerating topic pack");
+    const pack = await generateTopicPack(refreshToken);
+    await writeTopicCache(pack.topics, pack.source);
+    return Response.json({
+      topics: pack.topics.slice(0, count),
+      source: pack.source,
     });
   } catch (err) {
     console.error(err);
+
+    // Prefer yesterday's real topics over the canned fallbacks.
+    if (cached) {
+      const pool = refreshToken ? shuffled(cached.topics) : cached.topics;
+      return Response.json({
+        topics: pool.slice(0, count),
+        source: "stale-cache",
+        cached: true,
+        ...(debugRequested ? { debug: (err as Error)?.message ?? String(err) } : {}),
+      });
+    }
+
     return Response.json({
-      topics: NEWS_FALLBACK_TOPICS,
+      topics: NEWS_FALLBACK_TOPICS.slice(0, count),
       source: "fallback",
+      // Diagnostics on demand (`?debug=1`): only feed statuses, no secrets —
+      // and the caller already passed the platform JWT check to get here.
+      ...(debugRequested ? { debug: (err as Error)?.message ?? String(err) } : {}),
     });
   }
 }

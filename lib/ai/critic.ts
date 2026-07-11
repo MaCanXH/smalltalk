@@ -9,6 +9,7 @@ import type {
   Suggestions,
   TopicId,
 } from "../../types";
+import { getBackendBaseUrl } from "../backend";
 import { getFunctionsAuthHeaders } from "../supabase";
 import { getTopic } from "./banks";
 import { buildResult } from "./scoring";
@@ -156,9 +157,9 @@ export async function buildAiResult(
   newsContext?: NewsTopic
 ): Promise<SessionResult> {
   const localResult = buildResult(topicId, dialog, durationSec, labelOverride);
-  const feedbackApiUrl = process.env.EXPO_PUBLIC_FEEDBACK_API_URL;
+  const baseUrl = getBackendBaseUrl();
 
-  if (!feedbackApiUrl) {
+  if (!baseUrl) {
     return { ...localResult, newsContext };
   }
 
@@ -166,7 +167,7 @@ export async function buildAiResult(
     const topic = getTopic(topicId);
     const transcript = buildTranscript(dialog);
 
-    const response = await fetch(feedbackApiUrl, {
+    const response = await fetch(`${baseUrl}/api/feedback`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

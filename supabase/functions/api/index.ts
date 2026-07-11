@@ -4,10 +4,10 @@ import { handleVapiSession } from "./vapiSession.ts";
 
 /**
  * Small Talk backend, ported from server.mjs. Deployed as a single Edge
- * Function named `api` so both routes live under
- * `/functions/v1/api/...` — the app derives the hot-topics URL from
- * EXPO_PUBLIC_FEEDBACK_API_URL by stripping `/api/feedback`, and this layout
- * keeps that derivation working unchanged.
+ * Function named `api` so all routes live under `/functions/v1/api/...` —
+ * the app builds every route URL from one base (`lib/backend.ts`
+ * `getBackendBaseUrl`, derived from the Supabase project URL), and this
+ * layout keeps that derivation working unchanged.
  */
 
 const CORS_HEADERS: Record<string, string> = {

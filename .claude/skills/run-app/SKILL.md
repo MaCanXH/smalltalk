@@ -7,13 +7,13 @@ description: Start the Small Talk app end-to-end - boot the Android emulator and
 
 Launch order: emulator → Metro/app. All commands below are PowerShell (Windows). Paths assume the default Android SDK location `$env:LOCALAPPDATA\Android\Sdk`.
 
-The Groq feedback/hot-topics backend is a **deployed Supabase Edge Function** (`supabase/functions/api/`) — there is no local server to start. `EXPO_PUBLIC_FEEDBACK_API_URL` points at it and the same URL works for the emulator and physical devices.
+The Groq feedback/hot-topics backend is a **deployed Supabase Edge Function** (`supabase/functions/api/`) — there is no local server to start. Its URL is derived from `EXPO_PUBLIC_SUPABASE_URL` (same URL works for the emulator and physical devices).
 
 ## 0. Preconditions
 
-- `.env` at the repo root must contain `EXPO_PUBLIC_FEEDBACK_API_URL` (already present in this repo). Expo CLI auto-loads `.env`. Do not print the values. There are no client-side Vapi env vars — the live session fetches its Vapi config from the Edge Function's `/api/vapi/session` route.
-- `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` enable auth + cloud sync, and authenticate all calls to the Edge Function. Without them the app still runs, but sign-in is skipped, everything stays on-device, and the backend (which requires a Supabase JWT) is unreachable — topics and feedback fall back to their offline paths, and **live voice sessions cannot start**.
-- `GROQ_API_KEY` in `.env` is only needed when serving the Edge Function locally (`npx supabase functions serve api --env-file .env --no-verify-jwt`); the deployed function reads it from Supabase secrets.
+- `.env` at the repo root must contain `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` (already present in this repo) — they power auth + cloud sync, locate the backend, and authenticate all calls to the Edge Function. Expo CLI auto-loads `.env`. Do not print the values. There are no client-side Vapi or Groq env vars — the live session fetches its Vapi config from the Edge Function's `/api/vapi/session` route. Without the Supabase vars the app still runs, but sign-in is skipped, everything stays on-device, topics and feedback fall back to their offline paths, and **live voice sessions cannot start**.
+- Optional: `EXPO_PUBLIC_FEEDBACK_API_URL` overrides the backend location (point it at a local `supabase functions serve` `/api/feedback` URL).
+- `GROQ_API_KEY` is **not** in `.env` — the deployed function reads it from Supabase secrets. Only when serving the Edge Function locally, pass it via a separate env file: `npx supabase functions serve api --env-file supabase/.env.local --no-verify-jwt` (create that git-ignored file with just `GROQ_API_KEY=...`).
 - This app runs as a **native dev build**, not Expo Go.
 
 ## 1. Boot the emulator (skip if a device is already attached)
@@ -77,4 +77,4 @@ npx expo prebuild --platform android --clean
 - **Stale Metro or port 8081 busy**: kill the old process, then restart with `npx expo start --android --clear` to reset the bundler cache.
 - **App installed but shows old JS**: the dev build only needs reinstalling (`npm run android`) when native deps or `app.json` plugins change; JS-only changes just need Metro. Note: adding Supabase brought in `expo-auth-session` (a native module), so the first run after that change needs one `npm run android` rebuild; afterwards Metro-only again.
 - **OAuth/magic link doesn't return to the app**: the redirect uses the `smalltalk://` scheme — confirm it's in `app.json` and in Supabase → Authentication → URL Configuration (Redirect URLs). Cloud sync failing silently usually means the SQL schema (`supabase/schema.sql`) wasn't run or RLS has no policies; the app falls back to local-only.
-- **AI critic falls back to deterministic scoring / Talk tab shows fallback topics**: the Edge Function isn't reachable or rejected the request — confirm `EXPO_PUBLIC_FEEDBACK_API_URL` points at `https://<project-ref>.supabase.co/functions/v1/api/feedback`, the Supabase env vars are set (the request needs a JWT), then restart Metro (env vars are read at Metro start). Function logs: Supabase dashboard → Edge Functions → api → Logs.
+- **AI critic falls back to deterministic scoring / Talk tab shows fallback topics**: the Edge Function isn't reachable or rejected the request — confirm the Supabase env vars are set (the backend URL derives from `EXPO_PUBLIC_SUPABASE_URL` and the request needs a JWT), then restart Metro (env vars are read at Metro start). Function logs: Supabase dashboard → Edge Functions → api → Logs. `GET .../functions/v1/api/hot-topics?debug=1` (with auth headers) echoes feed-failure detail.

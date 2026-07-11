@@ -6,7 +6,8 @@ import { getBackendBaseUrl } from "../backend";
  * Trending topics now come from our backend, not directly from the app.
  *
  * Backend flow:
- * /api/hot-topics -> multiple Google News RSS sections -> Groq detail pack -> app.
+ * /api/hot-topics -> multi-source RSS (Google/BBC/NPR/ESPN/CBS) -> Groq
+ * detail pack -> ~20-min server cache -> app.
  *
  * This keeps the home screen clean: users see beginner-friendly small-talk
  * topics instead of raw news headlines with publisher clutter.

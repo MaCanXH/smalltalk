@@ -52,7 +52,7 @@ export async function fetchVapiSession(
 
   if (!baseUrl) {
     throw new Error(
-      "Missing backend configuration. Set EXPO_PUBLIC_FEEDBACK_API_URL, then restart Expo."
+      "Missing backend configuration. Set EXPO_PUBLIC_SUPABASE_URL, then restart Expo."
     );
   }
 

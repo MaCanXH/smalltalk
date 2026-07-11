@@ -14,10 +14,11 @@ Smalltalk is an Expo app for AI voice conversation practice. It uses the Vapi Re
 Create a local `.env` file:
 
 ```sh
-EXPO_PUBLIC_FEEDBACK_API_URL=https://your-project-ref.supabase.co/functions/v1/api/feedback
 EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=replace_with_supabase_anon_key
 ```
+
+The backend URL is derived from the Supabase URL (`<project>/functions/v1/...`). To point the app at a non-default backend (e.g. a local `supabase functions serve`), set the optional `EXPO_PUBLIC_FEEDBACK_API_URL` override to that backend's `/api/feedback` URL.
 
 ## Install dependencies
 
