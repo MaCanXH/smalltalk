@@ -177,7 +177,5 @@ export interface SavedPhrase {
 
 export interface AppSettings {
   accent: string;
-  ttsRate: number;
-  ttsPitch: number;
   hapticsEnabled: boolean;
 }

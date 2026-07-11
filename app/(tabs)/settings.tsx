@@ -1,5 +1,4 @@
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,36 +8,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 
 import { useTheme } from "../../context/ThemeContext";
-import { useAppData } from "../../context/AppDataContext";
 import { useAuth } from "../../context/AuthContext";
-import { speak } from "../../lib/speech/tts";
-import { clearAll } from "../../lib/storage";
 import { ACCENT_PRESETS, spacing, radius, typography } from "../../styles/global";
 
 export default function SettingsScreen() {
   const { colors, settings, setAccent, updateSettings } = useTheme();
-  const { refresh } = useAppData();
   const { user, configured, signOut } = useAuth();
-
-  const resetAll = () => {
-    Alert.alert(
-      "Reset everything?",
-      "This deletes all saved trainings, phrases and profile info from this device.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reset",
-          style: "destructive",
-          onPress: async () => {
-            await clearAll();
-            await refresh();
-          },
-        },
-      ]
-    );
-  };
+  const router = useRouter();
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: colors.bg }]} edges={["top"]}>
@@ -78,33 +57,6 @@ export default function SettingsScreen() {
           })}
         </View>
 
-        {/* Voice */}
-        <Text style={[styles.section, { color: colors.textFaint }]}>AI VOICE</Text>
-        <Stepper
-          colors={colors}
-          label="Speech speed"
-          value={settings.ttsRate}
-          onChange={(v) => updateSettings({ ttsRate: clamp(v, 0.5, 1.6) })}
-        />
-        <Stepper
-          colors={colors}
-          label="Pitch"
-          value={settings.ttsPitch}
-          onChange={(v) => updateSettings({ ttsPitch: clamp(v, 0.6, 1.6) })}
-        />
-        <Pressable
-          onPress={() =>
-            speak("Hey! This is how I'll sound during our chats.", {
-              rate: settings.ttsRate,
-              pitch: settings.ttsPitch,
-            })
-          }
-          style={[styles.testBtn, { borderColor: colors.accent }]}
-        >
-          <Ionicons name="volume-high" size={18} color={colors.accent} />
-          <Text style={{ color: colors.accent, fontWeight: "600" }}>Test voice</Text>
-        </Pressable>
-
         {/* Haptics */}
         <Text style={[styles.section, { color: colors.textFaint }]}>FEEDBACK</Text>
         <View style={[styles.toggleRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -119,50 +71,53 @@ export default function SettingsScreen() {
 
         {/* Account — signed-out users never reach the tabs (the sign-in gate
             blocks them), so only the signed-in rows exist. */}
+        <Text style={[styles.section, { color: colors.textFaint }]}>ACCOUNT</Text>
         {configured && user && (
-          <>
-            <Text style={[styles.section, { color: colors.textFaint }]}>ACCOUNT</Text>
-            <View
-              style={[
-                styles.toggleRow,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-            >
-              <View style={{ flex: 1, marginRight: spacing.md }}>
-                <Text style={[typography.body, { color: colors.text }]}>
-                  Signed in
-                </Text>
-                <Text
-                  style={[typography.small, { color: colors.textDim }]}
-                  numberOfLines={1}
-                >
-                  {user.email ?? "Synced across devices"}
-                </Text>
-              </View>
-              <Ionicons name="cloud-done" size={20} color={colors.success} />
+          <View
+            style={[
+              styles.toggleRow,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+            <View style={{ flex: 1, marginRight: spacing.md }}>
+              <Text style={[typography.body, { color: colors.text }]}>
+                Signed in
+              </Text>
+              <Text
+                style={[typography.small, { color: colors.textDim }]}
+                numberOfLines={1}
+              >
+                {user.email ?? "Synced across devices"}
+              </Text>
             </View>
-            <Pressable
-              onPress={signOut}
-              style={[
-                styles.toggleRow,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-            >
-              <Text style={[typography.body, { color: colors.text }]}>Sign out</Text>
-              <Ionicons name="log-out-outline" size={20} color={colors.textDim} />
-            </Pressable>
-          </>
+            <Ionicons name="cloud-done" size={20} color={colors.success} />
+          </View>
         )}
-
-        {/* Data */}
-        <Text style={[styles.section, { color: colors.textFaint }]}>DATA</Text>
         <Pressable
-          onPress={resetAll}
-          style={[styles.toggleRow, { backgroundColor: colors.surface, borderColor: colors.danger }]}
+          onPress={() => router.push("/profile")}
+          style={[
+            styles.toggleRow,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
         >
-          <Text style={[typography.body, { color: colors.danger }]}>Reset all local data</Text>
-          <Ionicons name="trash" size={20} color={colors.danger} />
+          <View style={styles.rowLabel}>
+            <Ionicons name="person" size={20} color={colors.accent} />
+            <Text style={[typography.body, { color: colors.text }]}>Profile</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.textDim} />
         </Pressable>
+        {configured && user && (
+          <Pressable
+            onPress={signOut}
+            style={[
+              styles.toggleRow,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[typography.body, { color: colors.text }]}>Sign out</Text>
+            <Ionicons name="log-out-outline" size={20} color={colors.textDim} />
+          </Pressable>
+        )}
 
         <Text style={[typography.tiny, { color: colors.textFaint, marginTop: spacing.xl, textAlign: "center" }]}>
           Small Talk · local-first · optional cloud sync
@@ -170,42 +125,6 @@ export default function SettingsScreen() {
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function Stepper({
-  label,
-  value,
-  onChange,
-  colors,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  colors: ReturnType<typeof useTheme>["colors"];
-}) {
-  return (
-    <View style={[styles.toggleRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Text style={[typography.body, { color: colors.text }]}>{label}</Text>
-      <View style={styles.stepper}>
-        <Pressable onPress={() => onChange(round(value - 0.1))} hitSlop={8}>
-          <Ionicons name="remove-circle" size={26} color={colors.textDim} />
-        </Pressable>
-        <Text style={[typography.body, { color: colors.text, width: 44, textAlign: "center" }]}>
-          {value.toFixed(1)}×
-        </Text>
-        <Pressable onPress={() => onChange(round(value + 0.1))} hitSlop={8}>
-          <Ionicons name="add-circle" size={26} color={colors.accent} />
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
-}
-function round(n: number) {
-  return Math.round(n * 10) / 10;
 }
 
 const styles = StyleSheet.create({
@@ -238,15 +157,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     marginBottom: spacing.sm,
   },
-  stepper: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  testBtn: {
+  rowLabel: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: spacing.sm,
-    borderWidth: 1.5,
-    borderRadius: radius.pill,
-    paddingVertical: 12,
-    marginTop: spacing.sm,
   },
 });

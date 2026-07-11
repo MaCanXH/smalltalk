@@ -26,6 +26,7 @@ function RootStack() {
           options={{ animation: "fade", gestureEnabled: false }}
         />
         <Stack.Screen name="session/[id]" />
+        <Stack.Screen name="profile" />
       </Stack>
     </>
   );

@@ -53,8 +53,6 @@ export const DEFAULT_PROFILE: UserProfile = {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   accent: DEFAULT_ACCENT,
-  ttsRate: 1.0,
-  ttsPitch: 1.0,
   hapticsEnabled: true,
 };
 
@@ -139,9 +137,4 @@ export async function deletePhrase(id: string): Promise<void> {
 /** Overwrite the whole phrase list — used when reconciling with the cloud. */
 export async function replacePhrases(phrases: SavedPhrase[]): Promise<void> {
   await writeJSON(KEYS.phrases, phrases);
-}
-
-/** Wipe everything — used by the Settings "reset" action. */
-export async function clearAll(): Promise<void> {
-  await AsyncStorage.multiRemove(Object.values(KEYS));
 }

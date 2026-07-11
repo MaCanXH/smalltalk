@@ -77,13 +77,6 @@ export default function TabsLayout() {
         }}
       />
       <SwipeTabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color }) => <Ionicons name="person" color={color} size={22} />,
-        }}
-      />
-      <SwipeTabs.Screen
         name="settings"
         options={{
           title: "Settings",

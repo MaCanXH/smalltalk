@@ -9,14 +9,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 
-import { useTheme } from "../../context/ThemeContext";
-import { useAppData } from "../../context/AppDataContext";
-import { spacing, radius, typography } from "../../styles/global";
-import type { UserProfile } from "../../types";
+import { useTheme } from "../context/ThemeContext";
+import { useAppData } from "../context/AppDataContext";
+import { spacing, radius, typography } from "../styles/global";
+import type { UserProfile } from "../types";
 
 export default function ProfileScreen() {
   const { colors } = useTheme();
+  const router = useRouter();
   const { profile, updateProfile, sessions, phrases, removePhrase } = useAppData();
   const [draft, setDraft] = useState<UserProfile>(profile);
   const [dirty, setDirty] = useState(false);
@@ -40,7 +42,12 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: colors.bg }]} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={[typography.h1, { color: colors.text }]}>Profile</Text>
+        <View style={styles.navBar}>
+          <Pressable onPress={() => router.back()} hitSlop={12}>
+            <Ionicons name="chevron-back" size={26} color={colors.text} />
+          </Pressable>
+          <Text style={[typography.h1, { color: colors.text }]}>Profile</Text>
+        </View>
 
         <View style={[styles.avatar, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
           <Text style={{ fontSize: 34 }}>🗣️</Text>
@@ -151,6 +158,11 @@ function Field({
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
+  navBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
   avatar: {
     alignSelf: "center",
     width: 88,

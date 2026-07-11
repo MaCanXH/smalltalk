@@ -24,10 +24,10 @@ Check for a running device:
 & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" devices
 ```
 
-If no device is listed, boot the AVD **Pixel_10** in the background (run_in_background — it never exits):
+If no device is listed, boot the AVD **Pixel_10_Pro_XL** in the background (run_in_background — it never exits):
 
 ```powershell
-& "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" -avd Pixel_10
+& "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" -avd Pixel_10_Pro_XL
 ```
 
 Then wait for boot to complete (polls until `sys.boot_completed` is `1`, typically 30–90 s):
