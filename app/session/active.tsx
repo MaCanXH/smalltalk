@@ -267,7 +267,7 @@ export default function ActiveSession() {
         const session = await fetchVapiSession(title ?? undefined, newsContext);
         if (!active || finishedRef.current || finishScheduledRef.current) return;
 
-        const client = createVapiClient(session.publicKey);
+        const client = createVapiClient(session.token);
         vapiRef.current = client;
 
         const startLocalAudioMeter = () => {

@@ -33,10 +33,10 @@ export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "", {
 
 /**
  * Auth headers for requests to this project's Edge Functions, which verify a
- * Supabase JWT before running. Signed-in users send their own access token;
- * skipped/offline users fall back to the anon key, which also passes the
- * platform check. Empty when Supabase isn't configured (e.g. the feedback URL
- * points at a local dev server instead).
+ * Supabase JWT before running. Sends the signed-in user's access token,
+ * falling back to the anon key if the session lookup fails (the anon key
+ * passes the platform check, but user-gated routes like /api/vapi/session
+ * will still reject it). Empty when Supabase isn't configured.
  */
 export async function getFunctionsAuthHeaders(): Promise<Record<string, string>> {
   if (!isSupabaseConfigured) return {};

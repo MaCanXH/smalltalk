@@ -44,12 +44,27 @@ create table if not exists public.saved_phrases (
 );
 create index if not exists saved_phrases_user_id_idx on public.saved_phrases (user_id);
 
+-- ---------- vapi_call_grants (one row per issued voice-session token) ----------
+-- Written only by the Edge Function (service role) when /api/vapi/session
+-- mints a Vapi call token; used to enforce the per-user daily session limit.
+create table if not exists public.vapi_call_grants (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists vapi_call_grants_user_time_idx
+  on public.vapi_call_grants (user_id, created_at);
+
 -- ============================================================
 -- Row Level Security — each user only sees/writes their own rows
 -- ============================================================
 alter table public.profiles      enable row level security;
 alter table public.sessions      enable row level security;
 alter table public.saved_phrases enable row level security;
+
+-- vapi_call_grants: RLS on with NO policies — only the service role (used by
+-- the Edge Function) can read or write; clients have no access at all.
+alter table public.vapi_call_grants enable row level security;
 
 -- profiles: keyed by the user's own id
 drop policy if exists "own profile" on public.profiles;

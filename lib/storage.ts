@@ -22,6 +22,8 @@ const KEYS = {
   profile: "@smalltalk/profile",
   settings: "@smalltalk/settings",
   phrases: "@smalltalk/phrases",
+  // Written by the removed "continue offline" feature; kept so `clearAll`
+  // still wipes the stale flag on devices that set it.
   authSkip: "@smalltalk/auth_skipped",
 } as const;
 
@@ -148,18 +150,6 @@ export async function deletePhrase(id: string): Promise<void> {
 /** Overwrite the whole phrase list — used when reconciling with the cloud. */
 export async function replacePhrases(phrases: SavedPhrase[]): Promise<void> {
   await writeJSON(KEYS.phrases, phrases);
-}
-
-// ----- Auth gate ------------------------------------------------------------
-
-/** Whether the user chose to keep using the app offline (skip sign-in). */
-export async function getAuthSkipped(): Promise<boolean> {
-  return (await AsyncStorage.getItem(KEYS.authSkip)) === "1";
-}
-
-export async function setAuthSkipped(skipped: boolean): Promise<void> {
-  if (skipped) await AsyncStorage.setItem(KEYS.authSkip, "1");
-  else await remove(KEYS.authSkip);
 }
 
 /** Wipe everything — used by the Settings "reset" action. */

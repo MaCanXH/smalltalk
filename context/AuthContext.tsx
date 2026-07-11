@@ -12,7 +12,6 @@ import React, {
   useState,
 } from "react";
 
-import { getAuthSkipped, setAuthSkipped } from "../lib/storage";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 /**
@@ -25,8 +24,10 @@ import { isSupabaseConfigured, supabase } from "../lib/supabase";
  *   `Linking` listener turns that URL into a session.
  *
  * The Supabase session itself is persisted by the client (AsyncStorage), so on
- * relaunch the user stays signed in without any UI. When Supabase isn't
- * configured, everything degrades to a signed-out, offline-only app.
+ * relaunch the user stays signed in without any UI. Sign-in is required — the
+ * backend attributes sessions (and enforces per-user limits) by identity.
+ * When Supabase isn't configured, everything degrades to a signed-out,
+ * on-device-only app.
  */
 
 WebBrowser.maybeCompleteAuthSession();
@@ -37,18 +38,12 @@ interface AuthValue {
   /** Current Supabase user, or null when signed out. */
   user: User | null;
   session: Session | null;
-  /** False until the initial session lookup + skip choice have resolved. */
+  /** False until the initial session lookup has resolved. */
   ready: boolean;
   configured: boolean;
-  /** True when the user chose to keep using the app offline (no account). */
-  skipped: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithMagicLink: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
-  /** Dismiss the gate and keep using the app on-device only. */
-  continueOffline: () => void;
-  /** Re-open the sign-in gate (e.g. from Settings) for an offline user. */
-  requireSignIn: () => void;
 }
 
 const AuthContext = createContext<AuthValue | undefined>(undefined);
@@ -72,12 +67,6 @@ async function createSessionFromUrl(url: string): Promise<Session | null> {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
-  const [skipped, setSkipped] = useState<boolean | null>(null);
-
-  // Load the persisted "continue offline" choice.
-  useEffect(() => {
-    getAuthSkipped().then(setSkipped);
-  }, []);
 
   // Hydrate the persisted session and subscribe to changes.
   useEffect(() => {
@@ -96,16 +85,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => sub.subscription.unsubscribe();
-  }, []);
-
-  const continueOffline = useCallback(() => {
-    setSkipped(true);
-    void setAuthSkipped(true);
-  }, []);
-
-  const requireSignIn = useCallback(() => {
-    setSkipped(false);
-    void setAuthSkipped(false);
   }, []);
 
   // Handle magic-link deep links that arrive while the app is open or cold-started.
@@ -146,36 +125,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setSession(null);
-    // Return to the gate rather than silently dropping into offline mode.
-    setSkipped(false);
-    void setAuthSkipped(false);
   }, []);
-
-  const ready = sessionReady && skipped !== null;
 
   const value = useMemo<AuthValue>(
     () => ({
       user: session?.user ?? null,
       session,
-      ready,
+      ready: sessionReady,
       configured: isSupabaseConfigured,
-      skipped: skipped ?? false,
       signInWithGoogle,
       signInWithMagicLink,
       signOut,
-      continueOffline,
-      requireSignIn,
     }),
-    [
-      session,
-      ready,
-      skipped,
-      signInWithGoogle,
-      signInWithMagicLink,
-      signOut,
-      continueOffline,
-      requireSignIn,
-    ]
+    [session, sessionReady, signInWithGoogle, signInWithMagicLink, signOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

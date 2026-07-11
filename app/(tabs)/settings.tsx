@@ -20,7 +20,7 @@ import { ACCENT_PRESETS, spacing, radius, typography } from "../../styles/global
 export default function SettingsScreen() {
   const { colors, settings, setAccent, updateSettings } = useTheme();
   const { refresh } = useAppData();
-  const { user, configured, signOut, requireSignIn } = useAuth();
+  const { user, configured, signOut } = useAuth();
 
   const resetAll = () => {
     Alert.alert(
@@ -117,61 +117,40 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Account */}
-        {configured && (
+        {/* Account — signed-out users never reach the tabs (the sign-in gate
+            blocks them), so only the signed-in rows exist. */}
+        {configured && user && (
           <>
             <Text style={[styles.section, { color: colors.textFaint }]}>ACCOUNT</Text>
-            {user ? (
-              <>
-                <View
-                  style={[
-                    styles.toggleRow,
-                    { backgroundColor: colors.surface, borderColor: colors.border },
-                  ]}
+            <View
+              style={[
+                styles.toggleRow,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <View style={{ flex: 1, marginRight: spacing.md }}>
+                <Text style={[typography.body, { color: colors.text }]}>
+                  Signed in
+                </Text>
+                <Text
+                  style={[typography.small, { color: colors.textDim }]}
+                  numberOfLines={1}
                 >
-                  <View style={{ flex: 1, marginRight: spacing.md }}>
-                    <Text style={[typography.body, { color: colors.text }]}>
-                      Signed in
-                    </Text>
-                    <Text
-                      style={[typography.small, { color: colors.textDim }]}
-                      numberOfLines={1}
-                    >
-                      {user.email ?? "Synced across devices"}
-                    </Text>
-                  </View>
-                  <Ionicons name="cloud-done" size={20} color={colors.success} />
-                </View>
-                <Pressable
-                  onPress={signOut}
-                  style={[
-                    styles.toggleRow,
-                    { backgroundColor: colors.surface, borderColor: colors.border },
-                  ]}
-                >
-                  <Text style={[typography.body, { color: colors.text }]}>Sign out</Text>
-                  <Ionicons name="log-out-outline" size={20} color={colors.textDim} />
-                </Pressable>
-              </>
-            ) : (
-              <Pressable
-                onPress={requireSignIn}
-                style={[
-                  styles.toggleRow,
-                  { backgroundColor: colors.surface, borderColor: colors.accent },
-                ]}
-              >
-                <View style={{ flex: 1, marginRight: spacing.md }}>
-                  <Text style={[typography.body, { color: colors.accent }]}>
-                    Sign in to sync
-                  </Text>
-                  <Text style={[typography.small, { color: colors.textDim }]}>
-                    Back up sessions and sync across devices.
-                  </Text>
-                </View>
-                <Ionicons name="cloud-upload-outline" size={20} color={colors.accent} />
-              </Pressable>
-            )}
+                  {user.email ?? "Synced across devices"}
+                </Text>
+              </View>
+              <Ionicons name="cloud-done" size={20} color={colors.success} />
+            </View>
+            <Pressable
+              onPress={signOut}
+              style={[
+                styles.toggleRow,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[typography.body, { color: colors.text }]}>Sign out</Text>
+              <Ionicons name="log-out-outline" size={20} color={colors.textDim} />
+            </Pressable>
           </>
         )}
 

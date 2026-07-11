@@ -32,14 +32,14 @@ function RootStack() {
 }
 
 /**
- * Decides between the sign-in gate and the app. Signed-in users (or those who
- * chose "continue offline", or when Supabase isn't configured) go straight to
- * the app; everyone else sees the gate first.
+ * Decides between the sign-in gate and the app. Signed-in users (or when
+ * Supabase isn't configured at all) go straight to the app; everyone else must
+ * sign in — the backend attributes sessions per user, so there is no
+ * skip-sign-in path.
  */
 function AuthGate() {
   const { colors } = useTheme();
-  const { user, ready: authReady, configured, skipped, continueOffline } =
-    useAuth();
+  const { user, ready: authReady, configured } = useAuth();
 
   const app = (
     <AppDataProvider>
@@ -49,14 +49,14 @@ function AuthGate() {
 
   if (!configured) return app;
 
-  // Still resolving the persisted session / skip choice — hold on a blank bg.
+  // Still resolving the persisted session — hold on a blank bg.
   if (!authReady) {
     return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
   }
 
-  if (user || skipped) return app;
+  if (user) return app;
 
-  return <SignInScreen onContinueOffline={continueOffline} />;
+  return <SignInScreen />;
 }
 
 export default function RootLayout() {

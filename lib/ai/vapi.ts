@@ -25,17 +25,18 @@ export interface VapiClient {
 /**
  * Per-call session config issued by the backend Edge Function. The persona,
  * prompt composition, and Vapi credentials live server-side
- * (`supabase/functions/api/vapiSession.ts`) — the app only receives what it
- * needs to join the call, and only after passing the backend's JWT check.
+ * (`supabase/functions/api/vapiSession.ts`). `token` is a short-lived
+ * public-scope Vapi JWT minted per call for the signed-in user — the app
+ * never holds a long-lived Vapi credential.
  */
 export interface VapiSession {
-  publicKey: string;
+  token: string;
   assistantId: string;
   overrides: Record<string, unknown>;
 }
 
-export function createVapiClient(publicKey: string): VapiClient {
-  return new Vapi(publicKey) as unknown as VapiClient;
+export function createVapiClient(token: string): VapiClient {
+  return new Vapi(token) as unknown as VapiClient;
 }
 
 /**
@@ -65,14 +66,24 @@ export async function fetchVapiSession(
   });
 
   if (!response.ok) {
-    throw new Error(`The voice session could not be prepared (status ${response.status}).`);
+    // Surface the server's own message (e.g. the daily-limit or sign-in
+    // errors) when it sent one; fall back to a generic status line.
+    const message = await response
+      .json()
+      .then((body: { error?: unknown }) =>
+        typeof body?.error === "string" && body.error.trim() ? body.error : null
+      )
+      .catch(() => null);
+    throw new Error(
+      message ?? `The voice session could not be prepared (status ${response.status}).`
+    );
   }
 
   const json = (await response.json()) as Partial<VapiSession>;
 
   if (
-    typeof json.publicKey !== "string" ||
-    !json.publicKey ||
+    typeof json.token !== "string" ||
+    !json.token ||
     typeof json.assistantId !== "string" ||
     !json.assistantId ||
     typeof json.overrides !== "object" ||
@@ -82,7 +93,7 @@ export async function fetchVapiSession(
   }
 
   return {
-    publicKey: json.publicKey,
+    token: json.token,
     assistantId: json.assistantId,
     overrides: json.overrides,
   };

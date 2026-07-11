@@ -68,7 +68,7 @@ npx expo prebuild --platform android --clean
 
 - Metro logs show `Android Bundled` after the app connects.
 - `adb shell pidof com.macanxhs.smalltalk` returns a PID once the app is running.
-- When Supabase env vars are set, the app opens on a **sign-in gate** (Google / magic link / "Continue offline"); tap "Continue offline" to reach the tabs without an account.
+- When Supabase env vars are set, the app opens on a **sign-in gate** (Google / magic link). Sign-in is **required** — there is no offline/skip path; the backend rejects voice-session requests that don't carry a signed-in user's token.
 - The Talk tab loads hot topics from the Edge Function; starting a session fetches the Vapi config from `/api/vapi/session` (a "Missing backend configuration" error means Metro was started without `.env` loaded; "The voice session could not be prepared" means the Edge Function rejected or failed the request — check its logs).
 
 ## Troubleshooting

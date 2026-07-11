@@ -16,9 +16,9 @@ import { useTheme } from "../context/ThemeContext";
 import { radius, spacing, typography } from "../styles/global";
 
 /**
- * Sign-in gate shown when no Supabase session is active. Offers Google OAuth,
- * a magic-link email, and a "continue offline" escape hatch that keeps the app
- * fully usable on-device without an account.
+ * Sign-in gate shown when no Supabase session is active. Offers Google OAuth
+ * and a magic-link email. Sign-in is required: the backend attributes voice
+ * sessions to a user (per-user limits), so there is no anonymous escape hatch.
  */
 
 type Status =
@@ -27,11 +27,7 @@ type Status =
   | { kind: "sent" }
   | { kind: "error"; message: string };
 
-export function SignInScreen({
-  onContinueOffline,
-}: {
-  onContinueOffline: () => void;
-}) {
+export function SignInScreen() {
   const { colors } = useTheme();
   const { signInWithGoogle, signInWithMagicLink } = useAuth();
   const [email, setEmail] = useState("");
@@ -95,7 +91,8 @@ export function SignInScreen({
                 },
               ]}
             >
-              Sign in to back up your sessions and sync across devices.
+              Sign in to practice, back up your sessions, and sync across
+              devices.
             </Text>
           </View>
 
@@ -198,17 +195,6 @@ export function SignInScreen({
               {status.message}
             </Text>
           )}
-
-          {/* Offline escape hatch */}
-          <Pressable
-            onPress={onContinueOffline}
-            disabled={busy}
-            style={{ marginTop: spacing.xxl, alignItems: "center" }}
-          >
-            <Text style={[typography.body, { color: colors.textDim }]}>
-              Continue offline
-            </Text>
-          </Pressable>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

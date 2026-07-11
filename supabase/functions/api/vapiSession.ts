@@ -1,16 +1,111 @@
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { SignJWT } from "npm:jose@5";
+
 /**
- * POST /api/vapi/session — issues the per-call Vapi config to the app.
+ * POST /api/vapi/session — issues the per-call Vapi token + config to the app.
  *
- * The small-talk persona and prompt composition moved here from the client
- * (lib/ai/vapi.ts) so they never ship in the JS bundle and can be tuned with a
- * `supabase functions deploy api` instead of an app release. The credentials
- * come from Supabase secrets (`VAPI_PUBLIC_KEY`, `VAPI_ASSISTANT_ID`) and are
- * only issued to requests that passed the platform JWT check (signed-in user
- * token or the anon key for skipped/offline users).
+ * The small-talk persona and prompt composition live here (not in the client)
+ * so they never ship in the JS bundle and can be tuned with a
+ * `supabase functions deploy api` instead of an app release.
+ *
+ * Phase 3a hardening: the route requires a signed-in Supabase user (the anon
+ * key alone is rejected), enforces a per-user daily session limit via the
+ * `vapi_call_grants` table (service role only), and returns a short-lived
+ * public-scope Vapi JWT minted with `VAPI_PRIVATE_KEY` + `VAPI_ORG_ID`
+ * instead of the long-lived public key — Vapi accepts it only on `/call/web`,
+ * and it expires minutes later. Until those two secrets are set, it falls
+ * back to returning `VAPI_PUBLIC_KEY` so sessions keep working.
  *
  * The WebRTC call itself still runs on the device — the client receives
- * `{ publicKey, assistantId, overrides }` and calls `vapi.start()` with them.
+ * `{ token, assistantId, overrides }` and calls `vapi.start()` with them.
  */
+
+/** How long a minted call token stays valid — enough to join, not to hoard. */
+const TOKEN_TTL_SECONDS = 10 * 60;
+
+const DEFAULT_DAILY_SESSION_LIMIT = 20;
+
+interface AuthenticatedUser {
+  id: string;
+}
+
+/** Resolve the caller to a real signed-in user; the bare anon key yields null. */
+async function requireUser(req: Request): Promise<AuthenticatedUser | null> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  const authHeader = req.headers.get("Authorization");
+  if (!supabaseUrl || !anonKey || !authHeader) return null;
+
+  const client = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data, error } = await client.auth.getUser();
+  if (error || !data.user) return null;
+  return { id: data.user.id };
+}
+
+/**
+ * Per-user rolling 24h session limit, tracked in `vapi_call_grants`.
+ * Fails open when the table is missing or errors (a broken quota store
+ * shouldn't take down all voice sessions) — the grant insert doubles as the
+ * usage record.
+ */
+async function checkAndRecordQuota(userId: string): Promise<boolean> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) return true;
+
+  const limit = Number(Deno.env.get("VAPI_DAILY_SESSION_LIMIT")) || DEFAULT_DAILY_SESSION_LIMIT;
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const { count, error: countError } = await admin
+    .from("vapi_call_grants")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", since);
+
+  if (countError) {
+    console.error("Quota check failed (allowing call):", countError.message);
+    return true;
+  }
+
+  if ((count ?? 0) >= limit) return false;
+
+  const { error: insertError } = await admin
+    .from("vapi_call_grants")
+    .insert({ user_id: userId });
+  if (insertError) {
+    console.error("Grant insert failed (allowing call):", insertError.message);
+  }
+
+  return true;
+}
+
+/**
+ * Mint a short-lived public-scope Vapi JWT (see
+ * https://docs.vapi.ai/customization/jwt-authentication). Public scope means
+ * Vapi accepts it only on the `/call/web` endpoint. Falls back to the raw
+ * public key until `VAPI_PRIVATE_KEY` + `VAPI_ORG_ID` are configured.
+ */
+async function mintCallToken(): Promise<string | null> {
+  const privateKey = Deno.env.get("VAPI_PRIVATE_KEY")?.trim();
+  const orgId = Deno.env.get("VAPI_ORG_ID")?.trim();
+
+  if (privateKey && orgId) {
+    return await new SignJWT({ orgId, token: { tag: "public" } })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS)
+      .sign(new TextEncoder().encode(privateKey));
+  }
+
+  return Deno.env.get("VAPI_PUBLIC_KEY")?.trim() || null;
+}
 
 interface KeyQuote {
   quote?: string;
@@ -176,10 +271,32 @@ export async function handleVapiSession(req: Request): Promise<Response> {
   try {
     console.log("POST /api/vapi/session received");
 
-    const publicKey = Deno.env.get("VAPI_PUBLIC_KEY")?.trim();
     const assistantId = Deno.env.get("VAPI_ASSISTANT_ID")?.trim();
+    if (!assistantId) {
+      return Response.json(
+        { error: "Vapi is not configured on the server" },
+        { status: 500 },
+      );
+    }
 
-    if (!publicKey || !assistantId) {
+    const user = await requireUser(req);
+    if (!user) {
+      return Response.json(
+        { error: "Sign in to start a voice session." },
+        { status: 401 },
+      );
+    }
+
+    const withinQuota = await checkAndRecordQuota(user.id);
+    if (!withinQuota) {
+      return Response.json(
+        { error: "Daily voice-session limit reached. Try again tomorrow." },
+        { status: 429 },
+      );
+    }
+
+    const token = await mintCallToken();
+    if (!token) {
       return Response.json(
         { error: "Vapi is not configured on the server" },
         { status: 500 },
@@ -197,7 +314,7 @@ export async function handleVapiSession(req: Request): Promise<Response> {
         : undefined;
 
     return Response.json({
-      publicKey,
+      token,
       assistantId,
       overrides: buildAssistantOverrides(topicLabel, newsContext),
     });
