@@ -151,6 +151,11 @@ export interface SessionResult {
   conversationSummary?: string;
   /** Current-events topic used to steer Vapi for this session. */
   newsContext?: NewsTopic;
+  /**
+   * Vapi's id for this call — joins the session to the server-side
+   * `call_reports` row written by the end-of-call webhook.
+   */
+  vapiCallId?: string;
   dialog: DialogTurn[];
 }
 

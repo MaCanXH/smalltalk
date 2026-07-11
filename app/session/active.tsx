@@ -93,6 +93,7 @@ export default function ActiveSession() {
   const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishRef = useRef<(saveResult: boolean) => Promise<void>>(async () => undefined);
   const addSessionRef = useRef(addSession);
+  const vapiCallIdRef = useRef<string | undefined>(undefined);
   const routerRef = useRef(router);
   const hapticsEnabledRef = useRef(settings.hapticsEnabled);
   const titleRef = useRef(title);
@@ -205,13 +206,16 @@ export default function ActiveSession() {
       return;
     }
 
-    const result = await buildAiResult(
-      RESULT_TOPIC_ID,
-      [...dialogRef.current],
-      elapsedRef.current,
-      titleRef.current ?? undefined,
-      newsContextRef.current
-    );
+    const result = {
+      ...(await buildAiResult(
+        RESULT_TOPIC_ID,
+        [...dialogRef.current],
+        elapsedRef.current,
+        titleRef.current ?? undefined,
+        newsContextRef.current
+      )),
+      vapiCallId: vapiCallIdRef.current,
+    };
 
     try {
       await addSessionRef.current(result);
@@ -251,6 +255,7 @@ export default function ActiveSession() {
     finishScheduledRef.current = false;
     clearFinishTimer();
     dialogRef.current = [];
+    vapiCallIdRef.current = undefined;
     elapsedRef.current = 0;
     setMode("idle");
     setRemaining(SESSION_SECONDS);
@@ -366,6 +371,10 @@ export default function ActiveSession() {
         if (!started) {
           throw new Error("The Vapi call could not be started.");
         }
+        // Vapi's call id links this session to the server-side end-of-call
+        // report (`call_reports`) written by the webhook.
+        const callId = (started as { id?: unknown }).id;
+        vapiCallIdRef.current = typeof callId === "string" ? callId : undefined;
       } catch (err) {
         if (!active || finishedRef.current || finishScheduledRef.current) return;
         finishedRef.current = true;
@@ -396,6 +405,7 @@ export default function ActiveSession() {
             titleRef.current ?? undefined
           ),
           newsContext: newsContextRef.current,
+          vapiCallId: vapiCallIdRef.current,
         };
         void addSessionRef.current(result).catch(() => undefined);
       }

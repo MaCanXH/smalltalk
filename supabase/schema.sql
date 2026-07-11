@@ -55,6 +55,25 @@ create table if not exists public.vapi_call_grants (
 create index if not exists vapi_call_grants_user_time_idx
   on public.vapi_call_grants (user_id, created_at);
 
+-- ---------- call_reports (Vapi end-of-call webhook payloads) ----------
+-- Written only by the vapi-webhook Edge Function (service role). One row per
+-- Vapi call — the canonical transcript/summary/cost, keyed by Vapi's call id
+-- (upserts make webhook retries idempotent). `user_id` comes from the
+-- metadata stamped on the call by /api/vapi/session; SessionResult.vapiCallId
+-- in the app joins a local session to its row here.
+create table if not exists public.call_reports (
+  call_id      text primary key,
+  user_id      uuid references auth.users on delete cascade,
+  ended_reason text,
+  duration_sec numeric,
+  cost         numeric,
+  summary      text,
+  transcript   text,
+  report       jsonb not null,
+  created_at   timestamptz not null default now()
+);
+create index if not exists call_reports_user_id_idx on public.call_reports (user_id);
+
 -- ============================================================
 -- Row Level Security — each user only sees/writes their own rows
 -- ============================================================
@@ -65,6 +84,14 @@ alter table public.saved_phrases enable row level security;
 -- vapi_call_grants: RLS on with NO policies — only the service role (used by
 -- the Edge Function) can read or write; clients have no access at all.
 alter table public.vapi_call_grants enable row level security;
+
+-- call_reports: users may READ their own reports (canonical transcripts);
+-- writes stay service-role-only (no insert/update policy).
+alter table public.call_reports enable row level security;
+drop policy if exists "own call reports" on public.call_reports;
+create policy "own call reports" on public.call_reports
+  for select
+  using (auth.uid() = user_id);
 
 -- profiles: keyed by the user's own id
 drop policy if exists "own profile" on public.profiles;

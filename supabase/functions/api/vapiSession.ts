@@ -87,6 +87,24 @@ async function checkAndRecordQuota(userId: string): Promise<boolean> {
 }
 
 /**
+ * Per-call webhook config: Vapi POSTs server messages (we only subscribe to
+ * `end-of-call-report`) to the `vapi-webhook` function, authenticating with
+ * the shared secret in a custom header — that function runs without the
+ * platform JWT check, so the header is its only gate. Skipped entirely until
+ * `VAPI_WEBHOOK_SECRET` is set.
+ */
+function buildWebhookServer(): Record<string, unknown> | null {
+  const secret = Deno.env.get("VAPI_WEBHOOK_SECRET")?.trim();
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")?.trim();
+  if (!secret || !supabaseUrl) return null;
+
+  return {
+    url: `${supabaseUrl}/functions/v1/vapi-webhook`,
+    headers: { "x-webhook-secret": secret },
+  };
+}
+
+/**
  * Mint a short-lived public-scope Vapi JWT (see
  * https://docs.vapi.ai/customization/jwt-authentication). Public scope means
  * Vapi accepts it only on the `/call/web` endpoint. Falls back to the raw
@@ -313,11 +331,18 @@ export async function handleVapiSession(req: Request): Promise<Response> {
         ? (body.newsContext as NewsContext)
         : undefined;
 
-    return Response.json({
-      token,
-      assistantId,
-      overrides: buildAssistantOverrides(topicLabel, newsContext),
-    });
+    const overrides = buildAssistantOverrides(topicLabel, newsContext);
+
+    // Stamp the call with its owner so the end-of-call report can be
+    // attributed, and point Vapi's server messages at the webhook receiver.
+    overrides.metadata = { userId: user.id };
+    const server = buildWebhookServer();
+    if (server) {
+      overrides.server = server;
+      overrides.serverMessages = ["end-of-call-report"];
+    }
+
+    return Response.json({ token, assistantId, overrides });
   } catch (err) {
     console.error(err);
     return Response.json(
