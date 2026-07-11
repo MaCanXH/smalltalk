@@ -1,6 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { SignJWT } from "npm:jose@5";
 
+import { requireUser } from "./auth.ts";
+
 /**
  * POST /api/vapi/session — issues the per-call Vapi token + config to the app.
  *
@@ -11,10 +13,9 @@ import { SignJWT } from "npm:jose@5";
  * Phase 3a hardening: the route requires a signed-in Supabase user (the anon
  * key alone is rejected), enforces a per-user daily session limit via the
  * `vapi_call_grants` table (service role only), and returns a short-lived
- * public-scope Vapi JWT minted with `VAPI_PRIVATE_KEY` + `VAPI_ORG_ID`
- * instead of the long-lived public key — Vapi accepts it only on `/call/web`,
- * and it expires minutes later. Until those two secrets are set, it falls
- * back to returning `VAPI_PUBLIC_KEY` so sessions keep working.
+ * public-scope Vapi JWT minted with `VAPI_PRIVATE_KEY` + `VAPI_ORG_ID` —
+ * Vapi accepts it only on `/call/web`, and it expires minutes later. The
+ * long-lived public key is retired entirely.
  *
  * The WebRTC call itself still runs on the device — the client receives
  * `{ token, assistantId, overrides }` and calls `vapi.start()` with them.
@@ -24,27 +25,6 @@ import { SignJWT } from "npm:jose@5";
 const TOKEN_TTL_SECONDS = 10 * 60;
 
 const DEFAULT_DAILY_SESSION_LIMIT = 20;
-
-interface AuthenticatedUser {
-  id: string;
-}
-
-/** Resolve the caller to a real signed-in user; the bare anon key yields null. */
-async function requireUser(req: Request): Promise<AuthenticatedUser | null> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const authHeader = req.headers.get("Authorization");
-  if (!supabaseUrl || !anonKey || !authHeader) return null;
-
-  const client = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const { data, error } = await client.auth.getUser();
-  if (error || !data.user) return null;
-  return { id: data.user.id };
-}
 
 /**
  * Per-user rolling 24h session limit, tracked in `vapi_call_grants`.
@@ -107,22 +87,21 @@ function buildWebhookServer(): Record<string, unknown> | null {
 /**
  * Mint a short-lived public-scope Vapi JWT (see
  * https://docs.vapi.ai/customization/jwt-authentication). Public scope means
- * Vapi accepts it only on the `/call/web` endpoint. Falls back to the raw
- * public key until `VAPI_PRIVATE_KEY` + `VAPI_ORG_ID` are configured.
+ * Vapi accepts it only on the `/call/web` endpoint. `VAPI_PRIVATE_KEY` +
+ * `VAPI_ORG_ID` are required — the raw-public-key fallback is retired, so no
+ * long-lived Vapi credential exists anywhere in the system anymore.
  */
 async function mintCallToken(): Promise<string | null> {
   const privateKey = Deno.env.get("VAPI_PRIVATE_KEY")?.trim();
   const orgId = Deno.env.get("VAPI_ORG_ID")?.trim();
 
-  if (privateKey && orgId) {
-    return await new SignJWT({ orgId, token: { tag: "public" } })
-      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-      .setIssuedAt()
-      .setExpirationTime(Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS)
-      .sign(new TextEncoder().encode(privateKey));
-  }
+  if (!privateKey || !orgId) return null;
 
-  return Deno.env.get("VAPI_PUBLIC_KEY")?.trim() || null;
+  return await new SignJWT({ orgId, token: { tag: "public" } })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS)
+    .sign(new TextEncoder().encode(privateKey));
 }
 
 interface KeyQuote {

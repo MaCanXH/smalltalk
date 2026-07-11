@@ -22,9 +22,6 @@ const KEYS = {
   profile: "@smalltalk/profile",
   settings: "@smalltalk/settings",
   phrases: "@smalltalk/phrases",
-  // Written by the removed "continue offline" feature; kept so `clearAll`
-  // still wipes the stale flag on devices that set it.
-  authSkip: "@smalltalk/auth_skipped",
 } as const;
 
 // ----- Generic JSON layer ---------------------------------------------------
@@ -41,10 +38,6 @@ async function readJSON<T>(key: string, fallback: T): Promise<T> {
 
 async function writeJSON<T>(key: string, value: T): Promise<void> {
   await AsyncStorage.setItem(key, JSON.stringify(value));
-}
-
-async function remove(key: string): Promise<void> {
-  await AsyncStorage.removeItem(key);
 }
 
 // ----- Defaults -------------------------------------------------------------
@@ -91,10 +84,6 @@ export async function deleteSession(id: string): Promise<void> {
     KEYS.sessions,
     items.filter((s) => s.id !== id)
   );
-}
-
-export async function clearSessions(): Promise<void> {
-  await remove(KEYS.sessions);
 }
 
 /** Overwrite the whole session list — used when reconciling with the cloud. */
@@ -156,5 +145,3 @@ export async function replacePhrases(phrases: SavedPhrase[]): Promise<void> {
 export async function clearAll(): Promise<void> {
   await AsyncStorage.multiRemove(Object.values(KEYS));
 }
-
-export const storageKeys = KEYS;

@@ -7,7 +7,7 @@ Smalltalk is an Expo app for AI voice conversation practice. It uses the Vapi Re
 - Node and npm
 - Xcode for iOS builds
 - Android Studio for Android builds
-- A Supabase project with the `api` Edge Function deployed (`npx supabase functions deploy api`) and the `GROQ_API_KEY`, `VAPI_PUBLIC_KEY`, and `VAPI_ASSISTANT_ID` secrets set (`npx supabase secrets set NAME=value`) — the Vapi credentials are issued to the app per call by the backend, not shipped in env vars
+- A Supabase project with the `api` and `vapi-webhook` Edge Functions deployed (`npx supabase functions deploy api vapi-webhook`) and the `GROQ_API_KEY`, `VAPI_ASSISTANT_ID`, `VAPI_PRIVATE_KEY`, `VAPI_ORG_ID`, and `VAPI_WEBHOOK_SECRET` secrets set (`npx supabase secrets set NAME=value`) — the app receives a short-lived Vapi token per call from the backend; no Vapi credential ships in env vars
 
 ## Environment
 

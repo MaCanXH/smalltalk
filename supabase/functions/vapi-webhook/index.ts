@@ -5,8 +5,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
  * cannot send a Supabase JWT, so this one runs with `verify_jwt = false`
  * (see supabase/config.toml) and authenticates with a shared secret instead:
  * `/api/vapi/session` puts `VAPI_WEBHOOK_SECRET` into the per-call
- * `server.headers`, Vapi echoes it on every webhook request, and anything
- * without it is rejected.
+ * `server.headers` as `x-webhook-secret`, Vapi echoes it on every webhook
+ * request, and anything without it is rejected.
  *
  * Only `end-of-call-report` messages are stored — Vapi's canonical record of
  * the call (full transcript, summary, cost, ended reason) — upserted by call
@@ -41,8 +41,7 @@ Deno.serve(async (req) => {
     return Response.json({ error: "Webhook not configured" }, { status: 500 });
   }
 
-  const provided =
-    req.headers.get("x-webhook-secret") ?? req.headers.get("x-vapi-secret");
+  const provided = req.headers.get("x-webhook-secret");
   if (provided !== secret) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }

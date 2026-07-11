@@ -15,8 +15,6 @@ import { getBackendBaseUrl } from "../backend";
 
 export type HotTopic = NewsTopic;
 
-const MAX_WORDS = 8;
-
 export const FALLBACK_TOPICS: HotTopic[] = [
   {
     id: "fallback_ai_tools",
@@ -88,58 +86,6 @@ export const FALLBACK_TOPICS: HotTopic[] = [
     url: "",
   },
 ];
-
-const ENTITIES: Record<string, string> = {
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&apos;": "'",
-  "&#39;": "'",
-  "&#x27;": "'",
-  "&nbsp;": " ",
-};
-
-export function decodeEntities(value: string): string {
-  return value
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/&[a-zA-Z#0-9]+;/g, (m) => ENTITIES[m] ?? m);
-}
-
-function stripCData(value: string): string {
-  return value.replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "");
-}
-
-/** Kept for unit tests and fallback parsing experiments. */
-export function extractItemTitles(xml: string): string[] {
-  const items = xml.match(/<item\b[\s\S]*?<\/item>/g) ?? [];
-  const titles: string[] = [];
-  for (const item of items) {
-    const match = item.match(/<title>([\s\S]*?)<\/title>/);
-    if (!match) continue;
-    const title = decodeEntities(stripCData(match[1]).trim()).trim();
-    if (title) titles.push(title);
-  }
-  return titles;
-}
-
-export function cleanHeadline(raw: string): string {
-  const trimmed = raw.trim().replace(/\s+/g, " ");
-  const dashIndex = trimmed.lastIndexOf(" - ");
-  return dashIndex > 0 ? trimmed.slice(0, dashIndex).trim() : trimmed;
-}
-
-export function shortenHeadline(full: string): string {
-  const clauseSplit = full.search(/\s[—–]\s|:\s/);
-  const base = (clauseSplit > 0 ? full.slice(0, clauseSplit) : full).trim();
-
-  const words = base.split(/\s+/);
-  if (words.length > MAX_WORDS) {
-    return `${words.slice(0, MAX_WORDS).join(" ")}…`;
-  }
-  return base;
-}
 
 function normalizeStringArray(value: unknown, limit: number): string[] {
   if (!Array.isArray(value)) return [];

@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+import { requireUser } from "./auth.ts";
 import { groq } from "./groq.ts";
 
 /**
@@ -835,6 +836,13 @@ Return ONLY this JSON shape:
 }
 
 export async function handleHotTopics(req: Request): Promise<Response> {
+  // Signed-in users only — a cache miss on this route triggers scraping +
+  // multiple Groq calls, so the bare anon key must not be able to invoke it.
+  const user = await requireUser(req);
+  if (!user) {
+    return Response.json({ error: "Sign in required." }, { status: 401 });
+  }
+
   const url = new URL(req.url);
   const requestedCount = Number(url.searchParams.get("count") ?? 3);
   const count = Number.isFinite(requestedCount)

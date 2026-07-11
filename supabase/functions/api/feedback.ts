@@ -1,9 +1,17 @@
+import { requireUser } from "./auth.ts";
 import { groq } from "./groq.ts";
 
 /** POST /api/feedback — Groq small-talk coach, ported verbatim from server.mjs. */
 export async function handleFeedback(req: Request): Promise<Response> {
   try {
     console.log("POST /api/feedback received");
+
+    // Signed-in users only — this route spends Groq tokens per request, so
+    // the bare (bundle-extractable) anon key must not be able to invoke it.
+    const user = await requireUser(req);
+    if (!user) {
+      return Response.json({ error: "Sign in required." }, { status: 401 });
+    }
 
     const { topicLabel, durationSec, transcript, newsContext } =
       await req.json();
