@@ -58,7 +58,7 @@ Type-check: `npx tsc --noEmit`.
 
 State flows through two React Context providers, nested in `app/_layout.tsx` (`ThemeProvider` → `AppDataProvider`):
 
-- **`context/ThemeContext.tsx`** — theme is always dark; only the accent color + haptics toggle are user-configurable and persisted. Consume via `useTheme()` (gives `colors`, `settings`).
+- **`context/ThemeContext.tsx`** — light lavender theme by default (the "Mingle" look: white cards on `#F5F3FB`), with a dark variant behind the Settings theme toggle; theme mode, accent color, and haptics are user-configurable and persisted. Consume via `useTheme()` (gives `colors` — including `colors.mode` — and `settings`).
 - **`context/AppDataContext.tsx`** — hydrates sessions/profile/saved-phrases once on mount and exposes CRUD that keeps in-memory state and storage in sync. Consume via `useAppData()`.
 
 **All persistence goes through `lib/storage.ts`** — a typed AsyncStorage wrapper. Screens/contexts call the domain helpers (`listSessions`, `saveProfile`, etc.); never call AsyncStorage directly. Keys are namespaced under `@smalltalk/*`.
@@ -69,7 +69,7 @@ State flows through two React Context providers, nested in `app/_layout.tsx` (`T
 - `app/session/[id].tsx` — post-session results; renders the score indices, suggestions, and the AI critic's `moments`.
 
 **Shared modules:**
-- `components/Orb.tsx` — the central animated reactive orb; driven by a Reanimated shared `amplitude` value. In-call it's fed from the assistant `volume-level` while the AI speaks and from a Daily local audio-level observer while the user speaks (the user-turn orb is red and icon-less). Supports `icon={null}` for a clean orb.
+- `components/Orb.tsx` — the central animated orb: a gradient "face" with smiley eyes that floats with a gentle bounce. The face keeps a fixed size; only the outer ring (and glow halo) swells with the Reanimated shared `amplitude` value. In-call it's fed from the assistant `volume-level` while the AI speaks and from a Daily local audio-level observer while the user speaks; `variant="ai"` is the purple/pink face, `variant="user"` cross-fades to a slowly-shifting blue one during the user's turn. `components/SoundBars.tsx` renders the vertical voice-level bars flanking the orb in a live session, driven by the same `amplitude`.
 - `styles/global.ts` — design tokens: `makeColors(accent)`, `spacing`, `radius`, `typography`, `layout`, `ACCENT_PRESETS`. Build dynamic styles from these; static layout uses `StyleSheet.create`.
 - `types/index.ts` — all shared types (imported as `../../types`). Note `@/*` path alias maps to repo root. Includes `FeedbackMoment` and the optional `SessionResult.moments` consumed by the critic and the results screen.
 

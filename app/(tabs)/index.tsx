@@ -14,7 +14,7 @@ import { useSharedValue } from "react-native-reanimated";
 import { Orb } from "../../components/Orb";
 import { useTheme } from "../../context/ThemeContext";
 import { FALLBACK_TOPICS, fetchHotTopics, type HotTopic } from "../../lib/news/hotTopics";
-import { spacing, radius, typography } from "../../styles/global";
+import { cardShadow, spacing, radius, typography } from "../../styles/global";
 
 export default function HomeScreen() {
   const { colors } = useTheme();
@@ -80,7 +80,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={[typography.tiny, { color: colors.accent }]}>SMALL TALK</Text>
+          <Text style={[styles.wordmark, { color: colors.accent }]}>Small Talk</Text>
           <Text style={[typography.h1, { color: colors.text, marginTop: 4 }]}>
             {"What's trending now"}
           </Text>
@@ -93,7 +93,10 @@ export default function HomeScreen() {
           <Pressable
             onPress={() => loadTopics(true)}
             disabled={loading}
-            style={[styles.refreshBtn, { borderColor: colors.border }]}
+            style={[
+              styles.refreshBtn,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
           >
             <Text style={{ color: colors.accent, fontWeight: "700", fontSize: 13 }}>
               Refresh
@@ -142,7 +145,7 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.orbWrap}>
-          <Orb mode="idle" amplitude={idleAmp} color={colors.accent} onPress={start} />
+          <Orb mode="idle" amplitude={idleAmp} onPress={start} />
           <Text style={[styles.caption, { color: colors.textFaint }]} numberOfLines={1}>
             {caption}
           </Text>
@@ -161,6 +164,11 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: spacing.lg,
+  },
+  wordmark: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.4,
   },
   topicHeader: {
     marginTop: spacing.xl,
@@ -190,8 +198,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingVertical: 18,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
+    ...cardShadow,
   },
   loadingBtn: {
     justifyContent: "center",

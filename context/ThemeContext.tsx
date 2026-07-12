@@ -12,8 +12,8 @@ import { DEFAULT_SETTINGS, getSettings, saveSettings } from "../lib/storage";
 import { makeColors, type ThemeColors } from "../styles/global";
 
 /**
- * Dark-theme provider. The theme itself is always dark; only the accent colour
- * (and a couple of TTS prefs) are user-configurable and persisted to storage.
+ * Theme provider. Light lavender by default with a dark variant; the theme
+ * mode and accent colour are user-configurable and persisted to storage.
  */
 
 interface ThemeContextValue {
@@ -60,7 +60,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<ThemeContextValue>(
     () => ({
-      colors: makeColors(settings.accent),
+      colors: makeColors(settings.accent, settings.theme),
       settings,
       ready,
       setAccent,

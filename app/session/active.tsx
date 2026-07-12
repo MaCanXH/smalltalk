@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AudioModule } from "expo-audio";
 import { useSharedValue, withTiming } from "react-native-reanimated";
 
 import { Orb, type OrbMode } from "../../components/Orb";
+import { SoundBars } from "../../components/SoundBars";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppData } from "../../context/AppDataContext";
 import { buildAiResult } from "../../lib/ai/critic";
@@ -21,7 +23,7 @@ import {
   isVapiEndedMessage,
   normalizeVapiConversation,
 } from "../../lib/ai/vapiTranscript";
-import { spacing, radius, typography } from "../../styles/global";
+import { cardShadow, spacing, radius, typography } from "../../styles/global";
 import type { DialogTurn, NewsTopic, TopicId } from "../../types";
 
 const SESSION_SECONDS = 180;
@@ -476,13 +478,19 @@ export default function ActiveSession() {
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: colors.bg }]}>
       <View style={styles.top}>
-        <Text style={[typography.tiny, { color: colors.textFaint }]}>
-          {headerEmoji}  {headerLabel.toUpperCase()}
-        </Text>
-        <Text style={[styles.timer, { color: colors.text }]}>
-          {mm}:{ss}
-        </Text>
-        <View style={[styles.progressTrack, { backgroundColor: colors.surfaceAlt }]}>
+        <View style={styles.brandRow}>
+          <Text style={[styles.wordmark, { color: colors.accent }]}>Small Talk</Text>
+          <Text style={[typography.small, { color: colors.textFaint }]} numberOfLines={1}>
+            · {headerEmoji} {headerLabel}
+          </Text>
+        </View>
+        <View style={styles.timerRow}>
+          <Ionicons name="time-outline" size={26} color={colors.text} />
+          <Text style={[styles.timer, { color: colors.text }]}>
+            {mm}:{ss}
+          </Text>
+        </View>
+        <View style={[styles.progressPill, { backgroundColor: colors.surfaceAlt }]}>
           <View
             style={[
               styles.progressFill,
@@ -493,14 +501,24 @@ export default function ActiveSession() {
       </View>
 
       <View style={styles.center}>
-        <Orb
-          mode={mode}
-          amplitude={amplitude}
-          color={mode === "listening" ? colors.danger : colors.accent}
-          icon={mode === "listening" ? null : mode === "speaking" ? "volume-high" : "mic"}
-          onPress={onOrbPress}
-          disabled={mode === "thinking" || mode === "idle" || ending}
-        />
+        <View style={styles.orbRow}>
+          <SoundBars
+            amplitude={amplitude}
+            color={mode === "listening" ? "#3B82F6" : colors.accent}
+          />
+          <Orb
+            mode={mode}
+            amplitude={amplitude}
+            variant={mode === "listening" ? "user" : "ai"}
+            size={200}
+            onPress={onOrbPress}
+            disabled={mode === "thinking" || mode === "idle" || ending}
+          />
+          <SoundBars
+            amplitude={amplitude}
+            color={mode === "listening" ? "#3B82F6" : colors.accent}
+          />
+        </View>
         <Text style={[styles.status, { color: colors.textDim }]}>
           {STATUS[mode]}
         </Text>
@@ -516,11 +534,12 @@ export default function ActiveSession() {
           styles.endBtn,
           {
             backgroundColor: colors.surface,
-            borderColor: colors.danger,
+            borderColor: colors.border,
             opacity: endDisabled ? 0.45 : 1,
           },
         ]}
       >
+        <View style={[styles.endSquare, { backgroundColor: colors.danger }]} />
         <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 15 }}>
           {ending ? "Ending..." : "End conversation"}
         </Text>
@@ -532,22 +551,44 @@ export default function ActiveSession() {
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: spacing.lg },
   top: { alignItems: "center", paddingTop: spacing.md },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    maxWidth: "100%",
+    paddingHorizontal: spacing.md,
+  },
+  wordmark: {
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+  },
+  timerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
   timer: {
-    fontSize: 52,
+    fontSize: 40,
     fontWeight: "800",
     letterSpacing: 1,
-    marginTop: spacing.sm,
     fontVariant: ["tabular-nums"],
   },
-  progressTrack: {
+  progressPill: {
     width: "60%",
-    height: 5,
+    height: 8,
     borderRadius: radius.pill,
     marginTop: spacing.md,
     overflow: "hidden",
   },
   progressFill: { height: "100%", borderRadius: radius.pill },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  orbRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
   status: {
     marginTop: spacing.xl,
     fontSize: 16,
@@ -555,11 +596,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   endBtn: {
-    borderWidth: 1.5,
-    borderRadius: radius.pill,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.lg,
     paddingVertical: 16,
     alignItems: "center",
     marginBottom: spacing.lg,
+    ...cardShadow,
+  },
+  endSquare: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
   },
   errorWrap: {
     alignItems: "center",

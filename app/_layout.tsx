@@ -12,7 +12,7 @@ function RootStack() {
   const { colors } = useTheme();
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style={colors.mode === "dark" ? "light" : "dark"} />
       <Stack
         screenOptions={{
           headerShown: false,

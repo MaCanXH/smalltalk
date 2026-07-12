@@ -177,5 +177,6 @@ export interface SavedPhrase {
 
 export interface AppSettings {
   accent: string;
+  theme: "light" | "dark";
   hapticsEnabled: boolean;
 }

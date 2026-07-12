@@ -47,6 +47,7 @@ export default function ResultScreen() {
     );
   }
 
+  const lt = colors.mode === "light";
   const hero = buildHero(result.finalScore);
   const heroSubtitle =
     result.conversationSummary?.trim() || result.newsContext?.brief || hero.subtitle;
@@ -74,27 +75,30 @@ export default function ResultScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.heroCard, { borderColor: colors.accent }]}>
-          <View style={[styles.emojiGlow, { borderColor: colors.accent }]}> 
+        <View style={[styles.heroCard, lt && lightStyles.heroCard, { borderColor: colors.accent }]}>
+          <View style={[styles.emojiGlow, lt && lightStyles.emojiGlow, { borderColor: colors.accent }]}>
             <Text style={styles.heroEmoji}>{hero.emoji}</Text>
           </View>
           <View style={styles.heroTitleRow}>
-            <Text style={styles.heroTitle}>{hero.title}</Text>
-            <Text style={styles.heroSpark}>⌁</Text>
+            <Text style={[styles.heroTitle, lt && lightStyles.heroTitle]}>{hero.title}</Text>
+            <Text style={[styles.heroSpark, { color: colors.accent }]}>⌁</Text>
           </View>
-          <Text style={styles.heroSubtitle}>{heroSubtitle}</Text>
+          <Text style={[styles.heroSubtitle, lt && lightStyles.heroSubtitle]}>{heroSubtitle}</Text>
         </View>
 
-        <Panel title="Keywords" icon="search" iconColor={colors.accent}>
+        <Panel title="Keywords" icon="search" iconColor={colors.accent} lt={lt}>
           <View style={styles.keywordWrap}>
             {keywords.slice(0, 4).map((keyword, i) => (
-              <View key={`${keyword}_${i}`} style={[styles.keywordChip, { borderColor: colors.accent }]}> 
+              <View
+                key={`${keyword}_${i}`}
+                style={[styles.keywordChip, lt && lightStyles.keywordChip, { borderColor: colors.accent }]}
+              >
                 <Ionicons
                   name={CHIP_ICONS[i] ?? "pricetag"}
                   size={17}
                   color={colors.accent}
                 />
-                <Text style={[styles.keywordText, { color: "#7DB1FF" }]}>
+                <Text style={[styles.keywordText, { color: lt ? colors.accent : "#7DB1FF" }]}>
                   {keyword}
                 </Text>
               </View>
@@ -103,16 +107,27 @@ export default function ResultScreen() {
         </Panel>
 
         {highlights.length > 0 ? (
-          <Panel title="Highlights" icon="star-outline" iconColor="#FACC15">
+          <Panel title="Highlights" icon="star-outline" iconColor="#FACC15" lt={lt}>
             <View style={styles.highlightGrid}>
               {highlights.map((highlight, i) => (
-                <View key={`${highlight.quote}_${i}`} style={styles.highlightCard}>
-                  <Text style={styles.quoteMark}>“</Text>
-                  <Text style={styles.highlightQuote}>“{highlight.quote}”</Text>
-                  <View style={styles.highlightDivider} />
+                <View
+                  key={`${highlight.quote}_${i}`}
+                  style={[styles.highlightCard, lt && lightStyles.highlightCard]}
+                >
+                  <Text style={[styles.quoteMark, { color: colors.accent }]}>“</Text>
+                  <Text style={[styles.highlightQuote, lt && lightStyles.highlightQuote]}>
+                    “{highlight.quote}”
+                  </Text>
+                  <View style={[styles.highlightDivider, lt && lightStyles.highlightDivider]} />
                   <View style={styles.highlightNoteRow}>
-                    <Ionicons name="checkmark-circle-outline" size={20} color="#1DE9C3" />
-                    <Text style={styles.highlightNote}>{highlight.note}</Text>
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={20}
+                      color={lt ? "#22A06B" : "#1DE9C3"}
+                    />
+                    <Text style={[styles.highlightNote, lt && lightStyles.highlightNote]}>
+                      {highlight.note}
+                    </Text>
                   </View>
                 </View>
               ))}
@@ -121,32 +136,32 @@ export default function ResultScreen() {
         ) : null}
 
         {vocabulary.length > 0 ? (
-          <Panel title="Vocabulary" icon="book-outline" iconColor="#38BDF8">
+          <Panel title="Vocabulary" icon="book-outline" iconColor="#38BDF8" lt={lt}>
             <View style={styles.studyList}>
               {vocabulary.map((item, i) => (
-                <VocabularyCard key={`${item.term}_${i}`} item={item} />
+                <VocabularyCard key={`${item.term}_${i}`} item={item} lt={lt} />
               ))}
             </View>
           </Panel>
         ) : null}
 
         {culturalClues.length > 0 ? (
-          <Panel title="Cultural Clues" icon="compass-outline" iconColor="#C084FC">
+          <Panel title="Cultural Clues" icon="compass-outline" iconColor="#C084FC" lt={lt}>
             <View style={styles.studyList}>
               {culturalClues.map((clue, i) => (
-                <CulturalClueCard key={`${clue.title}_${i}`} clue={clue} />
+                <CulturalClueCard key={`${clue.title}_${i}`} clue={clue} lt={lt} />
               ))}
             </View>
           </Panel>
         ) : null}
 
-        <Panel title="Breakdown" icon="bar-chart" iconColor={colors.accent}>
+        <Panel title="Breakdown" icon="bar-chart" iconColor={colors.accent} lt={lt}>
           <View style={styles.breakdownList}>
             {result.indices.map((idx) => (
               <View key={idx.key} style={styles.indexRow}>
-                <Text style={styles.indexLabel}>{idx.label}</Text>
+                <Text style={[styles.indexLabel, lt && lightStyles.indexLabel]}>{idx.label}</Text>
                 <View style={styles.indexMiddle}>
-                  <View style={styles.barTrack}>
+                  <View style={[styles.barTrack, lt && lightStyles.barTrack]}>
                     <View
                       style={[
                         styles.barFill,
@@ -158,8 +173,14 @@ export default function ResultScreen() {
                     />
                   </View>
                   <View style={styles.indexCommentRow}>
-                    <Ionicons name="chatbubble-outline" size={14} color="#6B7A90" />
-                    <Text style={styles.indexBlurb}>{idx.blurb}</Text>
+                    <Ionicons
+                      name="chatbubble-outline"
+                      size={14}
+                      color={lt ? "#A29BB8" : "#6B7A90"}
+                    />
+                    <Text style={[styles.indexBlurb, lt && lightStyles.indexBlurb]}>
+                      {idx.blurb}
+                    </Text>
                   </View>
                 </View>
                 <Text style={[styles.indexValue, { color: colors.accent }]}>
@@ -170,7 +191,7 @@ export default function ResultScreen() {
           </View>
         </Panel>
 
-        <Panel title="Transcript" icon="chatbubble-ellipses" iconColor={colors.accent}>
+        <Panel title="Transcript" icon="chatbubble-ellipses" iconColor={colors.accent} lt={lt}>
           <View style={styles.dialogList}>
             {result.dialog.map((turn, i) => {
               const isUser = turn.speaker === "user";
@@ -189,15 +210,35 @@ export default function ResultScreen() {
                       styles.bubble,
                       isUser ? styles.userBubble : styles.aiBubble,
                       {
-                        backgroundColor: isUser ? colors.accent : "#111827",
-                        borderColor: isUser ? colors.accent : "#2B3545",
+                        backgroundColor: isUser
+                          ? colors.accent
+                          : lt
+                            ? "#F1EDFB"
+                            : "#111827",
+                        borderColor: isUser
+                          ? colors.accent
+                          : lt
+                            ? "#E9E4F4"
+                            : "#2B3545",
                       },
                     ]}
                   >
-                    <Text style={isUser ? styles.userMeta : styles.aiMeta}>
+                    <Text
+                      style={
+                        isUser
+                          ? styles.userMeta
+                          : [styles.aiMeta, lt && lightStyles.aiMeta]
+                      }
+                    >
                       {isUser ? "YOU" : "AI"} · {fmt(turn.t)}
                     </Text>
-                    <Text style={isUser ? styles.userBubbleText : styles.aiBubbleText}>
+                    <Text
+                      style={
+                        isUser
+                          ? styles.userBubbleText
+                          : [styles.aiBubbleText, lt && lightStyles.aiBubbleText]
+                      }
+                    >
                       {turn.text}
                     </Text>
                   </View>
@@ -207,6 +248,7 @@ export default function ResultScreen() {
                       key={`${moment.type}_${momentIndex}`}
                       moment={moment}
                       accent={colors.accent}
+                      lt={lt}
                     />
                   ))}
                 </View>
@@ -249,35 +291,39 @@ function buildHero(score: number): { emoji: string; title: string; subtitle: str
 }
 
 
-function VocabularyCard({ item }: { item: VocabularyItem }) {
+function VocabularyCard({ item, lt }: { item: VocabularyItem; lt: boolean }) {
   return (
-    <View style={[styles.studyCard, styles.vocabCard]}>
+    <View style={[styles.studyCard, styles.vocabCard, lt && lightStyles.vocabCard]}>
       <View style={styles.studyTopRow}>
-        <Text style={styles.vocabTerm}>{item.term}</Text>
-        <View style={styles.vocabBadge}>
-          <Text style={styles.vocabBadgeText}>WORD</Text>
+        <Text style={[styles.vocabTerm, lt && lightStyles.vocabTerm]}>{item.term}</Text>
+        <View style={[styles.vocabBadge, lt && lightStyles.vocabBadge]}>
+          <Text style={[styles.vocabBadgeText, lt && lightStyles.vocabBadgeText]}>WORD</Text>
         </View>
       </View>
-      <Text style={styles.studyQuote}>“{item.quote}”</Text>
-      <Text style={styles.studyBody}>{item.meaning}</Text>
-      <Text style={styles.studyExample}>Example: {item.example}</Text>
-      <Text style={styles.studyTry}>Try: {item.sayNextTime}</Text>
+      <Text style={[styles.studyQuote, lt && lightStyles.studyQuote]}>“{item.quote}”</Text>
+      <Text style={[styles.studyBody, lt && lightStyles.studyBody]}>{item.meaning}</Text>
+      <Text style={[styles.studyExample, lt && lightStyles.studyExample]}>
+        Example: {item.example}
+      </Text>
+      <Text style={[styles.studyTry, lt && lightStyles.studyTry]}>Try: {item.sayNextTime}</Text>
     </View>
   );
 }
 
-function CulturalClueCard({ clue }: { clue: CulturalClue }) {
+function CulturalClueCard({ clue, lt }: { clue: CulturalClue; lt: boolean }) {
   return (
-    <View style={[styles.studyCard, styles.cultureCard]}>
+    <View style={[styles.studyCard, styles.cultureCard, lt && lightStyles.cultureCard]}>
       <View style={styles.studyTopRow}>
-        <Text style={styles.cultureTitle}>{clue.title}</Text>
-        <View style={styles.cultureBadge}>
-          <Text style={styles.cultureBadgeText}>CONTEXT</Text>
+        <Text style={[styles.cultureTitle, lt && lightStyles.cultureTitle]}>{clue.title}</Text>
+        <View style={[styles.cultureBadge, lt && lightStyles.cultureBadge]}>
+          <Text style={[styles.cultureBadgeText, lt && lightStyles.cultureBadgeText]}>
+            CONTEXT
+          </Text>
         </View>
       </View>
-      <Text style={styles.studyQuote}>“{clue.quote}”</Text>
-      <Text style={styles.studyBody}>{clue.explanation}</Text>
-      <Text style={styles.studyTry}>Try: {clue.trySaying}</Text>
+      <Text style={[styles.studyQuote, lt && lightStyles.studyQuote]}>“{clue.quote}”</Text>
+      <Text style={[styles.studyBody, lt && lightStyles.studyBody]}>{clue.explanation}</Text>
+      <Text style={[styles.studyTry, lt && lightStyles.studyTry]}>Try: {clue.trySaying}</Text>
     </View>
   );
 }
@@ -303,35 +349,37 @@ function normalize(value: string): string {
 function InlineMomentCard({
   moment,
   accent,
+  lt,
 }: {
   moment: FeedbackMoment;
   accent: string;
+  lt: boolean;
 }) {
-  const meta = getMomentMeta(moment.type, accent);
+  const meta = getMomentMeta(moment.type, accent, lt);
 
   return (
-    <View style={[styles.inlineMoment, { borderColor: meta.border, backgroundColor: meta.bg }]}> 
+    <View style={[styles.inlineMoment, { borderColor: meta.border, backgroundColor: meta.bg }]}>
       <View style={styles.inlineTopRow}>
         <Text style={[styles.inlineLabel, { color: meta.border }]}>
           {meta.emoji} {meta.label}
         </Text>
         <Ionicons name="chevron-forward" size={18} color={meta.border} />
       </View>
-      <Text style={styles.inlineTitle}>{moment.title}</Text>
-      <Text style={styles.inlineBody}>{moment.explanation}</Text>
+      <Text style={[styles.inlineTitle, lt && lightStyles.inlineTitle]}>{moment.title}</Text>
+      <Text style={[styles.inlineBody, lt && lightStyles.inlineBody]}>{moment.explanation}</Text>
       <Text style={[styles.inlineSuggestion, { color: meta.text }]}>{moment.suggestion}</Text>
     </View>
   );
 }
 
-function getMomentMeta(type: FeedbackMoment["type"], accent: string) {
+function getMomentMeta(type: FeedbackMoment["type"], accent: string, lt: boolean) {
   if (type === "ai_phrase") {
     return {
       emoji: "🤖",
       label: "AI PHRASE",
-      bg: "#21123C",
-      border: "#A66CFF",
-      text: "#E8D8FF",
+      bg: lt ? "#F5EDFF" : "#21123C",
+      border: lt ? "#8B5CF6" : "#A66CFF",
+      text: lt ? "#6D28D9" : "#E8D8FF",
     };
   }
 
@@ -339,18 +387,18 @@ function getMomentMeta(type: FeedbackMoment["type"], accent: string) {
     return {
       emoji: "💬",
       label: "TOPIC OPENER",
-      bg: "#1F163E",
-      border: "#8B5CF6",
-      text: "#E9DDFF",
+      bg: lt ? "#EFEAFE" : "#1F163E",
+      border: lt ? "#7C5CFF" : "#8B5CF6",
+      text: lt ? "#5B21B6" : "#E9DDFF",
     };
   }
 
   return {
     emoji: "🙋",
     label: "YOUR RESPONSE",
-    bg: "#3A2107",
-    border: "#F59E0B",
-    text: "#FFE1A6",
+    bg: lt ? "#FFF4E0" : "#3A2107",
+    border: lt ? "#D97706" : "#F59E0B",
+    text: lt ? "#92400E" : "#FFE1A6",
   };
 }
 
@@ -358,18 +406,20 @@ function Panel({
   title,
   icon,
   iconColor,
+  lt,
   children,
 }: {
   title: string;
   icon: keyof typeof Ionicons.glyphMap;
   iconColor: string;
+  lt: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <View style={styles.panel}>
+    <View style={[styles.panel, lt && lightStyles.panel]}>
       <View style={styles.panelHeader}>
         <Ionicons name={icon} size={25} color={iconColor} />
-        <Text style={styles.panelTitle}>{title}</Text>
+        <Text style={[styles.panelTitle, lt && lightStyles.panelTitle]}>{title}</Text>
       </View>
       {children}
     </View>
@@ -807,4 +857,57 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 3,
   },
+});
+
+/**
+ * Light-theme colour overrides layered over the dark base styles above —
+ * white cards on the lavender background, ink text, pale chip fills.
+ */
+const lightStyles = StyleSheet.create({
+  heroCard: {
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#3B2E63",
+    shadowOpacity: 0.1,
+  },
+  emojiGlow: { backgroundColor: "#F1EDFB" },
+  heroTitle: { color: "#241F35" },
+  heroSubtitle: { color: "#6E6787" },
+  panel: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#E9E4F4",
+  },
+  panelTitle: { color: "#241F35" },
+  keywordChip: { backgroundColor: "#F1EDFB" },
+  highlightCard: {
+    backgroundColor: "#FAF8FE",
+    borderColor: "#E9E4F4",
+  },
+  highlightQuote: { color: "#241F35" },
+  highlightDivider: { backgroundColor: "#E9E4F4" },
+  highlightNote: { color: "#6E6787" },
+  vocabCard: {
+    backgroundColor: "#F0F9FF",
+    borderColor: "#BAE0F7",
+  },
+  cultureCard: {
+    backgroundColor: "#F8F4FF",
+    borderColor: "#DDD0F5",
+  },
+  vocabTerm: { color: "#0C4A6E" },
+  cultureTitle: { color: "#5B21B6" },
+  vocabBadge: { backgroundColor: "#E0F2FE" },
+  cultureBadge: { backgroundColor: "#EDE9FE" },
+  vocabBadgeText: { color: "#0C4A6E" },
+  cultureBadgeText: { color: "#5B21B6" },
+  studyQuote: { color: "#8A82A3" },
+  studyBody: { color: "#241F35" },
+  studyExample: { color: "#6E6787" },
+  studyTry: { color: "#5B3DF5" },
+  indexLabel: { color: "#241F35" },
+  barTrack: { backgroundColor: "#EDE9F7" },
+  indexBlurb: { color: "#6E6787" },
+  aiMeta: { color: "#8A82A3" },
+  aiBubbleText: { color: "#241F35" },
+  inlineTitle: { color: "#241F35" },
+  inlineBody: { color: "#4A4460" },
 });
