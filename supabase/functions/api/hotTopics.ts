@@ -296,9 +296,34 @@ async function fetchAllNewsItems(): Promise<{ items: NewsItem[]; failures: strin
   }
 
   return {
-    items: uniqueBy(items, (item) => item.title.toLowerCase()).slice(0, MAX_NEWS_ITEMS),
+    items: uniqueBy(
+      interleaveBySourceGroup(items),
+      (item) => item.title.toLowerCase(),
+    ).slice(0, MAX_NEWS_ITEMS),
     failures,
   };
+}
+
+/**
+ * Round-robin the pool by feed so the token-budget trim in generateTopicPack
+ * cuts evenly across sources instead of always dropping whichever feeds are
+ * declared last in NEWS_FEEDS.
+ */
+function interleaveBySourceGroup(items: NewsItem[]): NewsItem[] {
+  const buckets = new Map<string, NewsItem[]>();
+  for (const item of items) {
+    const bucket = buckets.get(item.sourceGroup);
+    if (bucket) bucket.push(item);
+    else buckets.set(item.sourceGroup, [item]);
+  }
+
+  const result: NewsItem[] = [];
+  for (let rank = 0; result.length < items.length; rank++) {
+    for (const bucket of buckets.values()) {
+      if (rank < bucket.length) result.push(bucket[rank]);
+    }
+  }
+  return result;
 }
 
 // ----- topic-pack cache ------------------------------------------------------
@@ -318,13 +343,25 @@ const GENERATED_TOPIC_COUNT = 20;
 /**
  * Groq's free tier caps llama-3.1-8b-instant at 6,000 tokens/minute, and the
  * TPM check counts prompt + max_tokens up front (a 413, not retried by the
- * SDK). Everything below is sized against that budget: the headline pool and
- * snippet lengths keep the generation prompt ~2k tokens, max_tokens stays
- * under ~3.5k, and only the first ENRICHED_TOPIC_COUNT topics get the
- * (token-hungry) enrichment pass — the rest ship with their base details.
+ * SDK — one verbose news day of headlines was enough to trip it). The budget
+ * is therefore enforced, not assumed: generateTopicPack measures its prompt
+ * with estimateTokens and stops adding news items once estimated prompt +
+ * max_tokens would cross GROQ_TPM_TOKEN_BUDGET, which sits below the real
+ * limit to absorb estimation error. MAX_NEWS_ITEMS only bounds scraping; the
+ * token budget decides how many items reach the prompt. Only the first
+ * ENRICHED_TOPIC_COUNT topics get the (token-hungry) enrichment pass — the
+ * rest ship with their base details.
  */
 const MAX_NEWS_ITEMS = 36;
 const ENRICHED_TOPIC_COUNT = 5;
+const GROQ_TPM_TOKEN_BUDGET = 5300;
+const GENERATION_MAX_TOKENS = 3400;
+const ENRICHMENT_MAX_TOKENS = 1400;
+
+/** English averages ~4 characters per token; the budget slack covers the error. */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
 
 interface CachedTopicPack {
   topics: any[];
@@ -560,6 +597,10 @@ async function enrichTopicWithoutChangingIdentity(topic: any): Promise<any> {
     model: "llama-3.1-8b-instant",
     temperature: 0.2,
     response_format: { type: "json_object" },
+    // Without an explicit cap Groq reserves the model's default completion
+    // size against the TPM check — and ENRICHED_TOPIC_COUNT of these run
+    // concurrently alongside the generation call.
+    max_tokens: ENRICHMENT_MAX_TOKENS,
     messages: [
       {
         role: "system",
@@ -739,17 +780,7 @@ async function generateTopicPack(
     );
   }
 
-  const completion = await groq.chat.completions.create({
-    model: "llama-3.1-8b-instant",
-    temperature: refreshToken ? 0.35 : 0.2,
-    response_format: { type: "json_object" },
-    // Large enough for 20 compact topic packs, small enough that
-    // prompt + max_tokens stays under Groq's 6k TPM check.
-    max_tokens: 3400,
-    messages: [
-      {
-        role: "system",
-        content: `You turn current news RSS items into safe, beginner-friendly small-talk topic packs.
+  const systemPrompt = `You turn current news RSS items into safe, beginner-friendly small-talk topic packs.
 
 Return only valid JSON.
 
@@ -761,20 +792,13 @@ Rules:
 - Each topic must include enough context for a voice AI to discuss it without sounding like it only saw a headline.
 - The details should be factual, compact, and based on the supplied items.
 - The safeFraming should tell the AI how to keep the conversation socially appropriate.
-- Keep everything compact for a mobile app and a short voice prompt.`,
-      },
-      {
-        role: "user",
-        content: `Here are current news items from several news RSS feeds. Use the item numbers as sourceIndexes.
+- Keep everything compact for a mobile app and a short voice prompt.`;
 
-${newsItems
-  .map(
-    (item, i) =>
-      `${i + 1}. ${item.title}${item.source ? ` (${item.source})` : ""}${
-        item.sourceGroup ? ` [${item.sourceGroup}]` : ""
-      }${item.description ? `\n   Snippet: ${item.description.slice(0, 160)}` : ""}`
-  )
-  .join("\n")}
+  const userIntro = `Here are current news items from several news RSS feeds. Use the item numbers as sourceIndexes.
+
+`;
+
+  const userOutro = `
 
 Choose ${GENERATED_TOPIC_COUNT} good small-talk topics.
 
@@ -801,14 +825,52 @@ Return ONLY this JSON shape:
       "sourceIndexes": [1, 2]
     }
   ]
-}`,
-      },
+}`;
+
+  // Admit items one at a time until the estimated prompt plus the reserved
+  // completion would cross the TPM budget — a verbose news day just means
+  // fewer items in the prompt, never a 413. promptItems (not newsItems) must
+  // feed normalizeHotTopics below so the model's sourceIndexes line up.
+  const promptItems: NewsItem[] = [];
+  const itemLines: string[] = [];
+  let usedTokens =
+    estimateTokens(systemPrompt) +
+    estimateTokens(userIntro) +
+    estimateTokens(userOutro) +
+    GENERATION_MAX_TOKENS;
+  for (const item of newsItems) {
+    const line = `${promptItems.length + 1}. ${item.title}${
+      item.source ? ` (${item.source})` : ""
+    }${item.sourceGroup ? ` [${item.sourceGroup}]` : ""}${
+      item.description ? `\n   Snippet: ${item.description.slice(0, 160)}` : ""
+    }`;
+    const lineTokens = estimateTokens(`${line}\n`);
+    if (usedTokens + lineTokens > GROQ_TPM_TOKEN_BUDGET) break;
+    usedTokens += lineTokens;
+    promptItems.push(item);
+    itemLines.push(line);
+  }
+
+  if (promptItems.length < newsItems.length) {
+    console.log(
+      `[hot-topics] token budget admitted ${promptItems.length}/${newsItems.length} items (~${usedTokens} tokens incl. max_tokens)`,
+    );
+  }
+
+  const completion = await groq.chat.completions.create({
+    model: "llama-3.1-8b-instant",
+    temperature: refreshToken ? 0.35 : 0.2,
+    response_format: { type: "json_object" },
+    max_tokens: GENERATION_MAX_TOKENS,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `${userIntro}${itemLines.join("\n")}${userOutro}` },
     ],
   });
 
   const text = completion.choices[0].message.content;
   const parsed = JSON.parse(text ?? "{}");
-  const baseTopics = normalizeHotTopics(parsed.topics, newsItems).slice(
+  const baseTopics = normalizeHotTopics(parsed.topics, promptItems).slice(
     0,
     GENERATED_TOPIC_COUNT,
   );
