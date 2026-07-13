@@ -12,7 +12,13 @@ import { useRouter } from "expo-router";
 
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
-import { ACCENT_PRESETS, spacing, radius, typography } from "../../styles/global";
+import {
+  ACCENT_PRESETS,
+  cardShadow,
+  spacing,
+  radius,
+  typography,
+} from "../../styles/global";
 
 export default function SettingsScreen() {
   const { colors, settings, setAccent, updateSettings } = useTheme();
@@ -24,10 +30,29 @@ export default function SettingsScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={[typography.h1, { color: colors.text }]}>Settings</Text>
 
+        {/* Theme mode */}
+        <Text style={[styles.section, { color: colors.textFaint }]}>THEME</Text>
+        <View style={[styles.toggleRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.rowLabel}>
+            <Ionicons
+              name={settings.theme === "dark" ? "moon" : "sunny"}
+              size={20}
+              color={colors.accent}
+            />
+            <Text style={[typography.body, { color: colors.text }]}>Dark theme</Text>
+          </View>
+          <Switch
+            value={settings.theme === "dark"}
+            onValueChange={(v) => updateSettings({ theme: v ? "dark" : "light" })}
+            trackColor={{ true: colors.accent, false: colors.surfaceAlt }}
+            thumbColor="#fff"
+          />
+        </View>
+
         {/* Theme colour */}
         <Text style={[styles.section, { color: colors.textFaint }]}>THEME COLOUR</Text>
         <Text style={[typography.small, { color: colors.textDim, marginBottom: spacing.md }]}>
-          The app stays dark — pick the accent that drives the orb and highlights.
+          Pick the accent that drives the highlights.
         </Text>
         <View style={styles.swatches}>
           {ACCENT_PRESETS.map((preset) => {
@@ -152,10 +177,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     paddingHorizontal: spacing.md,
     paddingVertical: 14,
     marginBottom: spacing.sm,
+    ...cardShadow,
   },
   rowLabel: {
     flexDirection: "row",

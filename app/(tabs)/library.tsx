@@ -6,7 +6,7 @@ import { useRouter } from "expo-router";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppData } from "../../context/AppDataContext";
 import { getTopic } from "../../lib/ai/banks";
-import { spacing, radius, typography } from "../../styles/global";
+import { cardShadow, spacing, radius, typography } from "../../styles/global";
 
 export default function LibraryScreen() {
   const { colors } = useTheme();
@@ -51,12 +51,16 @@ export default function LibraryScreen() {
                   <Text style={[typography.h3, { color: colors.text }]}>
                     {topic.emoji} {s.topicLabel}
                   </Text>
-                  <Text style={[typography.small, { color: colors.textDim, marginTop: 2 }]}>
-                    {s.grade}
-                  </Text>
                   <Text style={[typography.tiny, { color: colors.textFaint, marginTop: 4 }]}>
                     {new Date(s.date).toLocaleString()} · {Math.round(s.durationSec)}s
                   </Text>
+                  <View style={styles.chipRow}>
+                    <View style={[styles.gradeChip, { backgroundColor: colors.accentSoft }]}>
+                      <Text style={[styles.gradeChipText, { color: colors.accent }]}>
+                        {s.grade}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
                 <Pressable onPress={() => removeSession(s.id)} hitSlop={10}>
                   <Ionicons name="trash-outline" size={20} color={colors.textFaint} />
@@ -87,8 +91,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.md,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: spacing.md,
+    ...cardShadow,
   },
   scoreChip: {
     width: 52,
@@ -98,4 +103,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   scoreNum: { fontSize: 20, fontWeight: "900" },
+  chipRow: {
+    flexDirection: "row",
+    marginTop: 6,
+  },
+  gradeChip: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  gradeChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
 });

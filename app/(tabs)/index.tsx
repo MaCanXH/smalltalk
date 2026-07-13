@@ -80,7 +80,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={[typography.tiny, { color: colors.accent }]}>SMALL TALK</Text>
+          <Text style={[styles.wordmark, { color: colors.accent }]}>Small Talk</Text>
           <Text style={[typography.h1, { color: colors.text, marginTop: 4 }]}>
             {"What's trending now"}
           </Text>
@@ -93,7 +93,10 @@ export default function HomeScreen() {
           <Pressable
             onPress={() => loadTopics(true)}
             disabled={loading}
-            style={[styles.refreshBtn, { borderColor: colors.border }]}
+            style={[
+              styles.refreshBtn,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
           >
             <Text style={{ color: colors.accent, fontWeight: "700", fontSize: 13 }}>
               Refresh
@@ -103,10 +106,10 @@ export default function HomeScreen() {
 
         <View style={styles.topicBlock}>
           {loading ? (
-            <View style={[styles.topicBtn, styles.loadingBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <ActivityIndicator color={colors.accent} />
-              <Text style={{ color: colors.textDim, fontWeight: "600", fontSize: 15 }}>
-                Loading AI topics…
+            <View style={[styles.topicBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <ActivityIndicator color={colors.accent} size="small" />
+              <Text style={{ color: colors.textDim, fontWeight: "600", fontSize: 12.5 }}>
+                Loading…
               </Text>
             </View>
           ) : (
@@ -121,17 +124,19 @@ export default function HomeScreen() {
                     {
                       backgroundColor: active ? colors.accent : colors.surface,
                       borderColor: active ? colors.accent : colors.border,
+                      maxWidth: "100%",
                     },
                   ]}
                 >
-                  <Text style={{ fontSize: 20 }}>📰</Text>
+                  <Text style={{ fontSize: 14 }}>📰</Text>
                   <Text
                     style={{
                       color: active ? "#fff" : colors.text,
-                      fontWeight: "700",
-                      fontSize: 16,
-                      flex: 1,
+                      fontWeight: "600",
+                      fontSize: 12.5,
+                      flexShrink: 1,
                     }}
+                    numberOfLines={1}
                   >
                     {t.short}
                   </Text>
@@ -142,10 +147,15 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.orbWrap}>
-          <Orb mode="idle" amplitude={idleAmp} color={colors.accent} onPress={start} />
+          <Orb mode="idle" amplitude={idleAmp} onPress={start} />
           <Text style={[styles.caption, { color: colors.textFaint }]} numberOfLines={1}>
             {caption}
           </Text>
+          <Pressable onPress={() => router.push("/(tabs)/scene")} hitSlop={8}>
+            <Text style={[styles.sceneLink, { color: colors.accent }]}>
+              Set up a specific scene →
+            </Text>
+          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -161,6 +171,11 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: spacing.lg,
+  },
+  wordmark: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.4,
   },
   topicHeader: {
     marginTop: spacing.xl,
@@ -182,19 +197,18 @@ const styles = StyleSheet.create({
   },
   topicBlock: {
     marginTop: spacing.sm,
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
   topicBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 18,
-    borderRadius: radius.md,
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
     borderWidth: 1,
-  },
-  loadingBtn: {
-    justifyContent: "center",
   },
   orbWrap: {
     flex: 1,
@@ -207,5 +221,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
     textAlign: "center",
+  },
+  sceneLink: {
+    marginTop: spacing.lg,
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

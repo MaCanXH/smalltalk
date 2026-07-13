@@ -1,13 +1,15 @@
 import { StyleSheet } from "react-native";
 
 /**
- * Global design tokens. The app is dark-theme-first; only the accent colour is
- * user-configurable (see Settings + ThemeContext).
+ * Global design tokens. The app is light-theme-first (soft lavender, white
+ * cards — the "Mingle" look); a dark variant is available via the Settings
+ * theme toggle. Only the accent colour and theme mode are user-configurable
+ * (see Settings + ThemeContext).
  */
 
 export const ACCENT_PRESETS: { name: string; value: string }[] = [
-  { name: "Ocean", value: "#2F80FF" },
   { name: "Violet", value: "#7C5CFF" },
+  { name: "Ocean", value: "#2F80FF" },
   { name: "Mint", value: "#2FD08B" },
   { name: "Coral", value: "#FF5C8A" },
   { name: "Amber", value: "#FF9F1C" },
@@ -16,7 +18,10 @@ export const ACCENT_PRESETS: { name: string; value: string }[] = [
 
 export const DEFAULT_ACCENT = ACCENT_PRESETS[0].value;
 
+export type ThemeMode = "light" | "dark";
+
 export interface ThemeColors {
+  mode: ThemeMode;
   bg: string;
   surface: string;
   surfaceAlt: string;
@@ -30,22 +35,51 @@ export interface ThemeColors {
   success: string;
 }
 
-/** Build the full colour set from a chosen accent. */
-export function makeColors(accent: string): ThemeColors {
+/** Build the full colour set from a chosen accent + theme mode. */
+export function makeColors(accent: string, mode: ThemeMode = "light"): ThemeColors {
+  if (mode === "dark") {
+    return {
+      mode,
+      bg: "#0A0C10",
+      surface: "#14181F",
+      surfaceAlt: "#1C222B",
+      text: "#F3F5F8",
+      textDim: "#9AA4B2",
+      textFaint: "#5B6471",
+      border: "#262D38",
+      accent,
+      accentSoft: accent + "22",
+      danger: "#FF5C5C",
+      success: "#2FD08B",
+    };
+  }
   return {
-    bg: "#0A0C10",
-    surface: "#14181F",
-    surfaceAlt: "#1C222B",
-    text: "#F3F5F8",
-    textDim: "#9AA4B2",
-    textFaint: "#5B6471",
-    border: "#262D38",
+    mode,
+    bg: "#F5F3FB",
+    surface: "#FFFFFF",
+    surfaceAlt: "#EDE9F7",
+    text: "#241F35",
+    textDim: "#6E6787",
+    textFaint: "#A29BB8",
+    border: "#E9E4F4",
     accent,
-    accentSoft: accent + "22",
-    danger: "#FF5C5C",
-    success: "#2FD08B",
+    accentSoft: accent + "1C",
+    danger: "#E5484D",
+    success: "#22A06B",
   };
 }
+
+/**
+ * Soft card shadow for the light theme's white-on-lavender cards; nearly
+ * invisible on dark surfaces, so it's safe to apply unconditionally.
+ */
+export const cardShadow = {
+  shadowColor: "#3B2E63",
+  shadowOpacity: 0.08,
+  shadowRadius: 14,
+  shadowOffset: { width: 0, height: 6 },
+  elevation: 3,
+} as const;
 
 export const spacing = {
   xs: 4,

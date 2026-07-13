@@ -53,6 +53,7 @@ export const DEFAULT_PROFILE: UserProfile = {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   accent: DEFAULT_ACCENT,
+  theme: "light",
   hapticsEnabled: true,
 };
 

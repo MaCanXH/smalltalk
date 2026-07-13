@@ -70,6 +70,15 @@ export default function TabsLayout() {
         }}
       />
       <SwipeTabs.Screen
+        name="scene"
+        options={{
+          title: "Scene",
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="people-circle-outline" color={color} size={22} />
+          ),
+        }}
+      />
+      <SwipeTabs.Screen
         name="library"
         options={{
           title: "Library",

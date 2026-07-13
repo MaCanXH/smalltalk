@@ -116,6 +116,12 @@ interface VocabularyItem {
   example?: string;
 }
 
+interface SceneContext {
+  goal?: string;
+  role?: string;
+  scene?: string;
+}
+
 interface NewsContext {
   short?: string;
   full?: string;
@@ -154,7 +160,36 @@ Conversation behavior:
 - If a topic stalls, smoothly pivot with an icebreaker question.
 - Don't claim real-world identity; you're a fictional conversational partner.`;
 
-function buildSystemPrompt(topicLabel?: string, newsContext?: NewsContext): string {
+function buildScenePrompt(sceneContext: SceneContext): string {
+  return `You are role-playing for a language-learner's practice conversation.
+
+Your role:
+- ${sceneContext.role ?? "A conversation partner suited to the scene below."}
+
+Scene / setting:
+- ${sceneContext.scene ?? "A casual, everyday conversation."}
+
+The caller's practice goal (do not state this out loud, just support it):
+- ${sceneContext.goal ?? "Have a natural, confident conversation."}
+
+Style:
+- Stay fully in character as the role above — do not break character or mention that this is a practice exercise.
+- Keep responses short (1–3 sentences) and easy to speak.
+- Ask one natural follow-up question at a time to keep the scene moving.
+- Match the tone the scene implies (e.g. professional for an interview, warm and casual for a date).
+
+Safety & boundaries:
+- Do not ask for sensitive personal data (full name, address, passwords, financial info).
+- Avoid explicit sexual content, hate, harassment, or illegal advice.
+- If the caller seems stuck, gently prompt them with a simple in-character question rather than breaking the scene.`;
+}
+
+function buildSystemPrompt(
+  topicLabel?: string,
+  newsContext?: NewsContext,
+  sceneContext?: SceneContext,
+): string {
+  if (sceneContext) return buildScenePrompt(sceneContext);
   if (!topicLabel) return SMALL_TALK_PERSONA;
 
   const contextBlock = newsContext
@@ -240,6 +275,7 @@ const ASSISTANT_MODEL = "claude-haiku-4-5-20251001";
 function buildAssistantOverrides(
   topicLabel?: string,
   newsContext?: NewsContext,
+  sceneContext?: SceneContext,
 ): Record<string, unknown> {
   const overrides: Record<string, unknown> = {
     maxDurationSeconds: 180,
@@ -252,11 +288,18 @@ function buildAssistantOverrides(
     model: {
       provider: ASSISTANT_MODEL_PROVIDER,
       model: ASSISTANT_MODEL,
-      messages: [{ role: "system", content: buildSystemPrompt(topicLabel, newsContext) }],
+      messages: [
+        { role: "system", content: buildSystemPrompt(topicLabel, newsContext, sceneContext) },
+      ],
     },
   };
 
-  if (topicLabel) {
+  if (sceneContext) {
+    // Deliberately generic — it has to read naturally whether the role is a
+    // hiring manager, a date, or a party guest. The system prompt (not this
+    // line) carries the actual role/scene framing.
+    overrides.firstMessage = "Hi there!";
+  } else if (topicLabel) {
     const opener = newsContext?.short ?? topicLabel;
     overrides.firstMessage = `Hey! I saw a topic about ${opener}. What do you think about it?`;
   }
@@ -309,8 +352,12 @@ export async function handleVapiSession(req: Request): Promise<Response> {
       body?.newsContext && typeof body.newsContext === "object"
         ? (body.newsContext as NewsContext)
         : undefined;
+    const sceneContext =
+      body?.sceneContext && typeof body.sceneContext === "object"
+        ? (body.sceneContext as SceneContext)
+        : undefined;
 
-    const overrides = buildAssistantOverrides(topicLabel, newsContext);
+    const overrides = buildAssistantOverrides(topicLabel, newsContext, sceneContext);
 
     // Stamp the call with its owner so the end-of-call report can be
     // attributed, and point Vapi's server messages at the webhook receiver.
