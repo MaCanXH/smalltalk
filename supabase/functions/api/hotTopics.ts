@@ -330,14 +330,14 @@ function interleaveBySourceGroup(items: NewsItem[]): NewsItem[] {
 
 /**
  * One cached pack of GENERATED_TOPIC_COUNT topics serves every request for
- * CACHE_FRESH_MS — scraping + Groq run at most ~3×/hour instead of on every
+ * CACHE_FRESH_MS — scraping + Groq run at most ~1×/hour instead of on every
  * Talk-tab load (the hammering is what got the egress IP blocked by Google).
  * A user "refresh" re-rolls the selection from the cached pack rather than
  * regenerating. When regeneration fails, the stale pack is served instead of
  * the canned fallbacks. Cache errors fail open (generate as before).
  */
 const TOPIC_CACHE_KEY = "hot-topics-v1";
-const CACHE_FRESH_MS = 20 * 60 * 1000;
+const CACHE_FRESH_MS = 60 * 60 * 1000;
 const GENERATED_TOPIC_COUNT = 20;
 
 /**
@@ -349,8 +349,10 @@ const GENERATED_TOPIC_COUNT = 20;
  * max_tokens would cross GROQ_TPM_TOKEN_BUDGET, which sits below the real
  * limit to absorb estimation error. MAX_NEWS_ITEMS only bounds scraping; the
  * token budget decides how many items reach the prompt. Only the first
- * ENRICHED_TOPIC_COUNT topics get the (token-hungry) enrichment pass — the
- * rest ship with their base details.
+ * ENRICHED_TOPIC_COUNT topics get the (token-hungry) enrichment pass at
+ * rebuild time — the rest ship with their base details and are enriched
+ * progressively by request-driven batches (scheduleTailEnrichment) over the
+ * cache's lifetime.
  */
 const MAX_NEWS_ITEMS = 36;
 const ENRICHED_TOPIC_COUNT = 5;
@@ -401,7 +403,13 @@ async function readTopicCache(): Promise<CachedTopicPack | null> {
   };
 }
 
-async function writeTopicCache(topics: any[], source: string): Promise<void> {
+async function writeTopicCache(
+  topics: any[],
+  source: string,
+  // Batch-enrichment merges pass the original timestamp — a patch write must
+  // not reset the freshness clock, or the pack would never expire.
+  createdAtIso?: string,
+): Promise<void> {
   const admin = getAdminClient();
   if (!admin) return;
 
@@ -410,11 +418,22 @@ async function writeTopicCache(topics: any[], source: string): Promise<void> {
       cache_key: TOPIC_CACHE_KEY,
       topics,
       source,
-      created_at: new Date().toISOString(),
+      created_at: createdAtIso ?? new Date().toISOString(),
     },
     { onConflict: "cache_key" },
   );
   if (error) console.warn("[hot-topics] cache write failed:", error.message);
+}
+
+/**
+ * The stored pack carries enrichment bookkeeping (`enriched` flags and the
+ * raw `sourceItems` the batch enricher consumes); the response contract with
+ * the app's normalizeTopic does not include either.
+ */
+function toPublicTopics(topics: any[]): any[] {
+  return topics.map(
+    ({ sourceItems: _sourceItems, enriched: _enriched, ...publicTopic }) => publicTopic,
+  );
 }
 
 function shuffled<T>(items: T[]): T[] {
@@ -462,6 +481,91 @@ function scheduleRevalidation(refreshToken: string): boolean {
   );
 
   return true;
+}
+
+/**
+ * Progressive tail enrichment: each fresh-cache request donates one background
+ * batch until every topic in the pack is enriched. Batches are small and
+ * paced (one per TPM minute per isolate) so they never crowd /api/feedback
+ * off the shared 6k-TPM Groq budget.
+ */
+const ENRICH_BATCH_SIZE = 2;
+const ENRICH_BATCH_MIN_INTERVAL_MS = 60_000;
+
+let enrichmentInFlight = false;
+let lastEnrichmentBatchStartedAt = 0;
+
+function scheduleTailEnrichment(topics: any[]): void {
+  if (!topics.some((topic) => topic?.enriched === false)) return;
+  const runtime = (globalThis as any).EdgeRuntime;
+  if (typeof runtime?.waitUntil !== "function") return;
+  if (enrichmentInFlight) return;
+  if (Date.now() - lastEnrichmentBatchStartedAt < ENRICH_BATCH_MIN_INTERVAL_MS) return;
+
+  enrichmentInFlight = true;
+  lastEnrichmentBatchStartedAt = Date.now();
+  runtime.waitUntil(
+    (async () => {
+      try {
+        await enrichNextBatch();
+      } catch (err) {
+        console.error(
+          "[hot-topics] batch enrichment task failed:",
+          (err as Error)?.message ?? err,
+        );
+      } finally {
+        enrichmentInFlight = false;
+      }
+    })(),
+  );
+}
+
+async function enrichNextBatch(): Promise<void> {
+  // Re-read at task start: another isolate may have advanced the frontier
+  // since the request that scheduled this batch was served.
+  const pack = await readTopicCache();
+  if (!pack || Date.now() - pack.createdAt >= CACHE_FRESH_MS) return;
+
+  const candidates = pack.topics
+    .filter((topic) => topic?.enriched === false)
+    .slice(0, ENRICH_BATCH_SIZE);
+  if (candidates.length === 0) return;
+
+  console.log(
+    `[hot-topics] enriching batch: ${candidates.map((topic) => topic.id).join(", ")}`,
+  );
+
+  // Sequential on purpose — two concurrent calls could momentarily reserve
+  // most of the TPM window the feedback critic shares.
+  const enrichedById = new Map<string, any>();
+  for (const candidate of candidates) {
+    try {
+      const enriched = await enrichTopicWithoutChangingIdentity(candidate, {
+        skipRelatedSearch: true,
+      });
+      const { sourceItems: _sourceItems, ...storedShape } = enriched;
+      // A fulfilled call counts as enriched even if no source material was
+      // usable — otherwise a materially empty topic would block the frontier
+      // and be retried by every future batch.
+      enrichedById.set(candidate.id, { ...storedShape, enriched: true });
+    } catch (err) {
+      console.warn(
+        `[hot-topics] batch enrichment failed for ${candidate.id}:`,
+        (err as Error)?.message ?? err,
+      );
+    }
+  }
+  if (enrichedById.size === 0) return;
+
+  // Read-merge-write: patch only the topics enriched here onto the *current*
+  // row, so a concurrent batch on another isolate isn't overwritten. The
+  // residual read→write race loses at most one batch, and the surviving
+  // enriched=false flags make that self-healing.
+  const current = await readTopicCache();
+  if (!current || current.createdAt !== pack.createdAt) return;
+  const merged = current.topics.map((topic) => enrichedById.get(topic?.id) ?? topic);
+  await writeTopicCache(merged, current.source, new Date(current.createdAt).toISOString());
+  console.log(`[hot-topics] batch stored (${enrichedById.size} topics enriched)`);
 }
 
 function buildGoogleNewsSearchUrl(query: string): string {
@@ -576,12 +680,19 @@ function mergeUniqueStrings(...groups: unknown[][]): string[] {
   );
 }
 
-async function enrichTopicWithoutChangingIdentity(topic: any): Promise<any> {
+async function enrichTopicWithoutChangingIdentity(
+  topic: any,
+  options: { skipRelatedSearch?: boolean } = {},
+): Promise<any> {
   const baseSourceItems: NewsItem[] = Array.isArray(topic.sourceItems)
     ? topic.sourceItems
     : [];
-  const query = buildRelatedNewsQuery(topic, baseSourceItems);
-  const relatedItems = await fetchRelatedNewsItems(query);
+  // Tail-topic batches skip the Google related-search: ~15 extra searches per
+  // cycle against the endpoint that already 503-blocked this egress IP isn't
+  // worth it — the stored sourceItems + their publisher articles suffice.
+  const relatedItems = options.skipRelatedSearch
+    ? []
+    : await fetchRelatedNewsItems(buildRelatedNewsQuery(topic, baseSourceItems));
   const allItems = uniqueBy(
     [...baseSourceItems, ...relatedItems],
     (item) => item.title.toLowerCase()
@@ -874,20 +985,24 @@ Return ONLY this JSON shape:
     0,
     GENERATED_TOPIC_COUNT,
   );
-  // Enrich only the head of the pack (the topics non-refresh users see);
-  // enriching all 20 would burn ~10 minutes of Groq TPM budget per rebuild.
+  // Enrich only the head of the pack inline (the topics non-refresh users
+  // see) — enriching all 20 here would burn ~10 minutes of Groq TPM budget in
+  // one task. The tail is enriched progressively by scheduleTailEnrichment
+  // batches as fresh-cache requests come in.
   const enrichedResults = await Promise.allSettled(
     baseTopics
       .slice(0, ENRICHED_TOPIC_COUNT)
       .map((topic) => enrichTopicWithoutChangingIdentity(topic))
   );
   const topics = baseTopics.map((topic, index) => {
-    const enriched =
-      index < enrichedResults.length && enrichedResults[index].status === "fulfilled"
-        ? (enrichedResults[index] as PromiseFulfilledResult<any>).value
-        : topic;
-    const { sourceItems: _sourceItems, ...publicTopic } = enriched;
-    return publicTopic;
+    if (index < enrichedResults.length && enrichedResults[index].status === "fulfilled") {
+      const { sourceItems: _sourceItems, ...enrichedTopic } =
+        (enrichedResults[index] as PromiseFulfilledResult<any>).value;
+      return { ...enrichedTopic, enriched: true };
+    }
+    // Unenriched topics keep their sourceItems in the cache — the progressive
+    // enrichment batches need them as raw material.
+    return { ...topic, enriched: false };
   });
 
   if (topics.length === 0) {
@@ -919,8 +1034,11 @@ export async function handleHotTopics(req: Request): Promise<Response> {
   if (cached && cacheAge < CACHE_FRESH_MS) {
     console.log(`GET /api/hot-topics served from cache (age ${Math.round(cacheAge / 1000)}s)`);
     const pool = refreshToken ? shuffled(cached.topics) : cached.topics;
+    // Fresh pack, possibly still ripening: donate a background enrichment
+    // batch behind this response (no-op once all topics are enriched).
+    scheduleTailEnrichment(cached.topics);
     return Response.json({
-      topics: pool.slice(0, count),
+      topics: toPublicTopics(pool.slice(0, count)),
       source: cached.source,
       cached: true,
     });
@@ -934,7 +1052,7 @@ export async function handleHotTopics(req: Request): Promise<Response> {
     );
     const pool = refreshToken ? shuffled(cached.topics) : cached.topics;
     return Response.json({
-      topics: pool.slice(0, count),
+      topics: toPublicTopics(pool.slice(0, count)),
       source: cached.source,
       cached: true,
       stale: true,
@@ -946,7 +1064,7 @@ export async function handleHotTopics(req: Request): Promise<Response> {
     const pack = await generateTopicPack(refreshToken);
     await writeTopicCache(pack.topics, pack.source);
     return Response.json({
-      topics: pack.topics.slice(0, count),
+      topics: toPublicTopics(pack.topics.slice(0, count)),
       source: pack.source,
     });
   } catch (err) {
@@ -956,7 +1074,7 @@ export async function handleHotTopics(req: Request): Promise<Response> {
     if (cached) {
       const pool = refreshToken ? shuffled(cached.topics) : cached.topics;
       return Response.json({
-        topics: pool.slice(0, count),
+        topics: toPublicTopics(pool.slice(0, count)),
         source: "stale-cache",
         cached: true,
         ...(debugRequested ? { debug: (err as Error)?.message ?? String(err) } : {}),
