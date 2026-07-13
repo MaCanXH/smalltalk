@@ -13,7 +13,7 @@ export async function handleFeedback(req: Request): Promise<Response> {
       return Response.json({ error: "Sign in required." }, { status: 401 });
     }
 
-    const { topicLabel, durationSec, transcript, newsContext } =
+    const { topicLabel, durationSec, transcript, newsContext, sceneContext } =
       await req.json();
 
     const completion = await groq.chat.completions.create({
@@ -53,6 +53,9 @@ Duration: ${durationSec} seconds
 
 News context, if available:
 ${newsContext ? JSON.stringify(newsContext, null, 2) : "None"}
+
+Practice scene, if available (the USER was rehearsing this scenario; the AI PARTNER was role-playing the given role):
+${sceneContext ? JSON.stringify(sceneContext, null, 2) : "None"}
 
 Transcript:
 ${transcript}

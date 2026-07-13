@@ -22,6 +22,10 @@ function RootStack() {
       >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
+          name="scene/setup"
+          options={{ presentation: "modal" }}
+        />
+        <Stack.Screen
           name="session/active"
           options={{ animation: "fade", gestureEnabled: false }}
         />

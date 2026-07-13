@@ -5,6 +5,7 @@ import type {
   VocabularyItem,
   CulturalClue,
   NewsTopic,
+  SceneContext,
   SessionResult,
   Suggestions,
   TopicId,
@@ -154,13 +155,14 @@ export async function buildAiResult(
   dialog: DialogTurn[],
   durationSec: number,
   labelOverride?: string,
-  newsContext?: NewsTopic
+  newsContext?: NewsTopic,
+  sceneContext?: SceneContext
 ): Promise<SessionResult> {
   const localResult = buildResult(topicId, dialog, durationSec, labelOverride);
   const baseUrl = getBackendBaseUrl();
 
   if (!baseUrl) {
-    return { ...localResult, newsContext };
+    return { ...localResult, newsContext, sceneContext };
   }
 
   try {
@@ -181,6 +183,7 @@ export async function buildAiResult(
         dialog,
         localResult,
         newsContext,
+        sceneContext,
       }),
     });
 
@@ -221,9 +224,10 @@ export async function buildAiResult(
       conversationSummary:
         aiFeedback.conversationSummary || localResult.conversationSummary,
       newsContext,
+      sceneContext,
     };
   } catch (error) {
     console.warn("AI feedback failed. Falling back to local scoring.", error);
-    return { ...localResult, newsContext };
+    return { ...localResult, newsContext, sceneContext };
   }
 }

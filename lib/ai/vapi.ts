@@ -1,5 +1,5 @@
 import Vapi from "@vapi-ai/react-native";
-import type { NewsTopic } from "../../types";
+import type { NewsTopic, SceneContext } from "../../types";
 
 import { getBackendBaseUrl } from "../backend";
 import { getFunctionsAuthHeaders } from "../supabase";
@@ -42,11 +42,14 @@ export function createVapiClient(token: string): VapiClient {
 /**
  * Ask the backend for this call's Vapi config. With a `topicLabel` the server
  * steers the AI toward that headline (system prompt + an opening line);
- * without one it composes a generic open small-talk partner.
+ * with a `sceneContext` it steers toward a user-defined goal/role/scene
+ * instead (taking priority over the headline); without either it composes a
+ * generic open small-talk partner.
  */
 export async function fetchVapiSession(
   topicLabel?: string,
-  newsContext?: NewsTopic
+  newsContext?: NewsTopic,
+  sceneContext?: SceneContext
 ): Promise<VapiSession> {
   const baseUrl = getBackendBaseUrl();
 
@@ -62,7 +65,7 @@ export async function fetchVapiSession(
       "Content-Type": "application/json",
       ...(await getFunctionsAuthHeaders()),
     },
-    body: JSON.stringify({ topicLabel, newsContext }),
+    body: JSON.stringify({ topicLabel, newsContext, sceneContext }),
   });
 
   if (!response.ok) {

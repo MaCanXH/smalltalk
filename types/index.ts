@@ -72,6 +72,13 @@ export interface NewsTopic {
   publishedAt?: string;
 }
 
+/** A user-defined practice scenario: what to work on, who the AI plays, and the setting. */
+export interface SceneContext {
+  goal: string;
+  role: string;
+  scene: string;
+}
+
 export interface ScoreIndex {
   key: string;
   label: string;
@@ -151,6 +158,8 @@ export interface SessionResult {
   conversationSummary?: string;
   /** Current-events topic used to steer Vapi for this session. */
   newsContext?: NewsTopic;
+  /** User-defined scenario (goal/role/scene) used to steer Vapi for this session. */
+  sceneContext?: SceneContext;
   /**
    * Vapi's id for this call — joins the session to the server-side
    * `call_reports` row written by the end-of-call webhook.

@@ -24,7 +24,7 @@ import {
   normalizeVapiConversation,
 } from "../../lib/ai/vapiTranscript";
 import { cardShadow, spacing, radius, typography } from "../../styles/global";
-import type { DialogTurn, NewsTopic, TopicId } from "../../types";
+import type { DialogTurn, NewsTopic, SceneContext, TopicId } from "../../types";
 
 const SESSION_SECONDS = 180;
 
@@ -58,7 +58,11 @@ export default function ActiveSession() {
   const { colors, settings } = useTheme();
   const { addSession } = useAppData();
   const router = useRouter();
-  const params = useLocalSearchParams<{ title?: string; newsContext?: string }>();
+  const params = useLocalSearchParams<{
+    title?: string;
+    newsContext?: string;
+    sceneContext?: string;
+  }>();
   const title = useMemo(() => {
     const raw = typeof params.title === "string" ? params.title.trim() : "";
     return raw.length > 0 ? raw : null;
@@ -76,8 +80,22 @@ export default function ActiveSession() {
       return undefined;
     }
   }, [params.newsContext]);
+
+  const sceneContext = useMemo<SceneContext | undefined>(() => {
+    const raw =
+      typeof params.sceneContext === "string" ? params.sceneContext.trim() : "";
+
+    if (!raw) return undefined;
+
+    try {
+      return JSON.parse(raw) as SceneContext;
+    } catch {
+      return undefined;
+    }
+  }, [params.sceneContext]);
+
   const headerLabel = newsContext?.short ?? title ?? "Open chat";
-  const headerEmoji = title ? "📰" : "💬";
+  const headerEmoji = sceneContext ? "🎭" : title ? "📰" : "💬";
 
   const [mode, setMode] = useState<SessionMode>("idle");
   const [remaining, setRemaining] = useState(SESSION_SECONDS);
@@ -100,6 +118,7 @@ export default function ActiveSession() {
   const hapticsEnabledRef = useRef(settings.hapticsEnabled);
   const titleRef = useRef(title);
   const newsContextRef = useRef<NewsTopic | undefined>(newsContext);
+  const sceneContextRef = useRef<SceneContext | undefined>(sceneContext);
 
   const elapsedRef = useRef(0);
   elapsedRef.current = SESSION_SECONDS - remaining;
@@ -123,6 +142,10 @@ export default function ActiveSession() {
   useEffect(() => {
     newsContextRef.current = newsContext;
   }, [newsContext]);
+
+  useEffect(() => {
+    sceneContextRef.current = sceneContext;
+  }, [sceneContext]);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -214,7 +237,8 @@ export default function ActiveSession() {
         [...dialogRef.current],
         elapsedRef.current,
         titleRef.current ?? undefined,
-        newsContextRef.current
+        newsContextRef.current,
+        sceneContextRef.current
       )),
       vapiCallId: vapiCallIdRef.current,
     };
@@ -271,7 +295,7 @@ export default function ActiveSession() {
         // The Vapi credentials and per-call overrides are issued by the
         // backend Edge Function (JWT-gated); nothing Vapi-related ships in
         // the bundle or in client env vars.
-        const session = await fetchVapiSession(title ?? undefined, newsContext);
+        const session = await fetchVapiSession(title ?? undefined, newsContext, sceneContext);
         if (!active || finishedRef.current || finishScheduledRef.current) return;
 
         const client = createVapiClient(session.token);
@@ -407,6 +431,7 @@ export default function ActiveSession() {
             titleRef.current ?? undefined
           ),
           newsContext: newsContextRef.current,
+          sceneContext: sceneContextRef.current,
           vapiCallId: vapiCallIdRef.current,
         };
         void addSessionRef.current(result).catch(() => undefined);
@@ -429,6 +454,7 @@ export default function ActiveSession() {
     stopLocalAudioMeter,
     title,
     newsContext,
+    sceneContext,
   ]);
 
   // countdown
