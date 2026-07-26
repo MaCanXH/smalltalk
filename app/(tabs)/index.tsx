@@ -8,17 +8,22 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSharedValue } from "react-native-reanimated";
 
 import { Orb } from "../../components/Orb";
 import { useTheme } from "../../context/ThemeContext";
+import { useAppData } from "../../context/AppDataContext";
 import { FALLBACK_TOPICS, fetchHotTopics, type HotTopic } from "../../lib/news/hotTopics";
-import { spacing, radius, typography } from "../../styles/global";
+import { SCENARIO_PRESETS, shortenSceneLabel } from "../../lib/scenarios";
+import { cardShadow, spacing, radius, typography } from "../../styles/global";
+import type { SceneContext } from "../../types";
 
 export default function HomeScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { sessions } = useAppData();
   const idleAmp = useSharedValue(0);
 
   const [topics, setTopics] = useState<HotTopic[]>([]);
@@ -67,6 +72,30 @@ export default function HomeScreen() {
           }
         : {},
     });
+  };
+
+  const startWithScene = (scene: SceneContext) => {
+    router.push({
+      pathname: "/session/active",
+      params: {
+        title: shortenSceneLabel(scene.scene),
+        sceneContext: JSON.stringify(scene),
+      },
+    });
+  };
+
+  const startRandomScene = () => {
+    const preset = SCENARIO_PRESETS[Math.floor(Math.random() * SCENARIO_PRESETS.length)];
+    startWithScene({ goal: preset.goal, role: preset.role, scene: preset.scene });
+  };
+
+  const startLastScene = () => {
+    const last = sessions.find((s) => s.sceneContext)?.sceneContext;
+    if (last) {
+      startWithScene(last);
+    } else {
+      startRandomScene();
+    }
   };
 
   const caption = selected
@@ -151,11 +180,32 @@ export default function HomeScreen() {
           <Text style={[styles.caption, { color: colors.textFaint }]} numberOfLines={1}>
             {caption}
           </Text>
-          <Pressable onPress={() => router.push("/(tabs)/scene")} hitSlop={8}>
-            <Text style={[styles.sceneLink, { color: colors.accent }]}>
-              Set up a specific scene →
-            </Text>
-          </Pressable>
+          <View style={styles.sceneRow}>
+            <Pressable
+              onPress={startRandomScene}
+              style={[styles.sceneBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            >
+              <Ionicons name="sparkles" size={16} color={colors.accent} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.sceneTitle, { color: colors.text }]}>Surprise me</Text>
+                <Text style={[styles.sceneSub, { color: colors.textFaint }]} numberOfLines={1}>
+                  Random scene
+                </Text>
+              </View>
+            </Pressable>
+            <Pressable
+              onPress={startLastScene}
+              style={[styles.sceneBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            >
+              <Ionicons name="play-skip-forward" size={16} color={colors.accent} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.sceneTitle, { color: colors.text }]}>Last scene</Text>
+                <Text style={[styles.sceneSub, { color: colors.textFaint }]} numberOfLines={1}>
+                  Pick up again
+                </Text>
+              </View>
+            </Pressable>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -222,9 +272,22 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
   },
-  sceneLink: {
+  sceneRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
     marginTop: spacing.lg,
-    fontSize: 13,
-    fontWeight: "700",
+    alignSelf: "stretch",
   },
+  sceneBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.sm + 4,
+    ...cardShadow,
+  },
+  sceneTitle: { fontSize: 12.5, fontWeight: "700" },
+  sceneSub: { fontSize: 10.5, fontWeight: "500", marginTop: 1 },
 });
