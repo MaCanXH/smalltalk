@@ -140,7 +140,6 @@ export default function SceneScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.eyebrow, { color: colors.accent }]}>Set the scene</Text>
         <Text style={[typography.h1, { color: colors.text }]}>
           Just say what you{"\n"}want to practice
         </Text>
@@ -270,14 +269,7 @@ export default function SceneScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.xl },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
+  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xl },
   orbWrap: {
     alignItems: "center",
     marginTop: spacing.lg,

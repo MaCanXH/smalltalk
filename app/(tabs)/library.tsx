@@ -140,13 +140,6 @@ export default function LibraryScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: colors.bg }]} edges={["top"]}>
-      <View style={styles.header}>
-        <Text style={[typography.h1, { color: colors.text }]}>Library</Text>
-        <Text style={[typography.body, { color: colors.textDim, marginTop: 4 }]}>
-          {subtitle}
-        </Text>
-      </View>
-
       <View style={styles.controls}>
         <Segmented
           colors={colors}
@@ -176,6 +169,10 @@ export default function LibraryScreen() {
             </Pressable>
           ) : null}
         </View>
+
+        <Text style={[typography.body, { color: colors.textDim }]}>
+          {subtitle}
+        </Text>
 
         {tab === "saved" ? (
           <Segmented
@@ -457,10 +454,9 @@ function EmptyCard({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
   controls: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.lg,
     gap: spacing.sm,
   },
   segTrack: {

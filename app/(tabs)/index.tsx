@@ -118,8 +118,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={[styles.wordmark, { color: colors.accent }]}>Small Talk</Text>
-          <Text style={[typography.h1, { color: colors.text, marginTop: 4 }]}>
+          <Text style={[typography.h1, { color: colors.text }]}>
             {"What's trending now"}
           </Text>
         </View>
@@ -229,15 +228,10 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   header: {
-    paddingTop: spacing.lg,
-  },
-  wordmark: {
-    fontSize: 22,
-    fontWeight: "800",
-    letterSpacing: -0.4,
+    paddingTop: spacing.sm,
   },
   topicHeader: {
-    marginTop: spacing.xl,
+    marginTop: spacing.xs,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
