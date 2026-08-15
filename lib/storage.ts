@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type {
   AppSettings,
+  SavedItem,
   SavedPhrase,
   SessionResult,
   UserProfile,
@@ -21,7 +22,9 @@ const KEYS = {
   sessions: "@smalltalk/sessions",
   profile: "@smalltalk/profile",
   settings: "@smalltalk/settings",
-  phrases: "@smalltalk/phrases",
+  savedItems: "@smalltalk/saved_items",
+  /** Legacy flat phrase list — read once to migrate into `savedItems`. */
+  legacyPhrases: "@smalltalk/phrases",
 } as const;
 
 // ----- Generic JSON layer ---------------------------------------------------
@@ -111,31 +114,58 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   await writeJSON(KEYS.settings, settings);
 }
 
-// ----- Saved phrases --------------------------------------------------------
+// ----- Saved items (bookmarked vocab + suggestions) -------------------------
 
-export async function listPhrases(): Promise<SavedPhrase[]> {
-  const items = await readJSON<SavedPhrase[]>(KEYS.phrases, []);
-  return [...items].sort((a, b) => b.createdDate.localeCompare(a.createdDate));
+const sortSavedItems = (items: SavedItem[]): SavedItem[] =>
+  [...items].sort((a, b) => b.createdDate.localeCompare(a.createdDate));
+
+/** Fold a legacy flat phrase into the new saved-item shape. */
+function legacyPhraseToSavedItem(p: SavedPhrase): SavedItem {
+  return {
+    id: p.id,
+    type: "phrase",
+    createdDate: p.createdDate,
+    data: { term: p.text, quote: "", meaning: "", example: "", sayNextTime: "" },
+  };
 }
 
-export async function savePhrase(phrase: SavedPhrase): Promise<void> {
-  const items = await readJSON<SavedPhrase[]>(KEYS.phrases, []);
-  if (items.some((p) => p.text === phrase.text && p.kind === phrase.kind)) {
-    return; // de-dupe identical phrases
+/**
+ * Read the saved items, migrating the legacy `@smalltalk/phrases` list on first
+ * access. The migration is one-shot: once `savedItems` exists, the legacy key
+ * is never read again.
+ */
+export async function listSavedItems(): Promise<SavedItem[]> {
+  const raw = await AsyncStorage.getItem(KEYS.savedItems);
+  if (raw != null) {
+    try {
+      return sortSavedItems(JSON.parse(raw) as SavedItem[]);
+    } catch {
+      return [];
+    }
   }
-  items.push(phrase);
-  await writeJSON(KEYS.phrases, items);
+
+  const legacy = await readJSON<SavedPhrase[]>(KEYS.legacyPhrases, []);
+  const migrated = legacy.map(legacyPhraseToSavedItem);
+  await writeJSON(KEYS.savedItems, migrated);
+  return sortSavedItems(migrated);
 }
 
-export async function deletePhrase(id: string): Promise<void> {
-  const items = await readJSON<SavedPhrase[]>(KEYS.phrases, []);
+export async function saveSavedItem(item: SavedItem): Promise<void> {
+  const items = await listSavedItems();
+  const next = items.filter((i) => i.id !== item.id);
+  next.push(item);
+  await writeJSON(KEYS.savedItems, next);
+}
+
+export async function deleteSavedItem(id: string): Promise<void> {
+  const items = await listSavedItems();
   await writeJSON(
-    KEYS.phrases,
-    items.filter((p) => p.id !== id)
+    KEYS.savedItems,
+    items.filter((i) => i.id !== id)
   );
 }
 
-/** Overwrite the whole phrase list — used when reconciling with the cloud. */
-export async function replacePhrases(phrases: SavedPhrase[]): Promise<void> {
-  await writeJSON(KEYS.phrases, phrases);
+/** Overwrite the whole saved-item list — used when reconciling with the cloud. */
+export async function replaceSavedItems(items: SavedItem[]): Promise<void> {
+  await writeJSON(KEYS.savedItems, items);
 }

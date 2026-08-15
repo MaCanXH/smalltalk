@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,9 +21,18 @@ const CHIP_ICONS = ["airplane", "color-palette", "calendar", "chatbubble-ellipse
 
 export default function ResultScreen() {
   const { colors } = useTheme();
-  const { sessions } = useAppData();
+  const { sessions, savedItems, addSavedItem, removeSavedItem } = useAppData();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
+
+  // Close returns to wherever the user came from: dismissing every pushed
+  // screen reveals the (tabs) navigator on its originating tab (Talk / Scene /
+  // Library), with that tab's own state intact — so a suggestion card opened
+  // from Library → Saved → Suggestions lands back on Suggestions.
+  const handleClose = () => {
+    if (router.canDismiss()) router.dismissAll();
+    else router.replace("/(tabs)");
+  };
 
   const fromState = useMemo(
     () => sessions.find((s) => s.id === id) ?? null,
@@ -32,10 +41,36 @@ export default function ResultScreen() {
 
   const [result, setResult] = useState<SessionResult | null>(fromState);
 
+  // Deep-link target: when arriving from a saved suggestion, scroll the matching
+  // moment into view. `focusRef` is attached to the turn that carries it.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollWrapRef = useRef<View>(null);
+  const focusRef = useRef<View>(null);
+
   useEffect(() => {
     if (!fromState && id) getSession(id).then(setResult);
     else setResult(fromState);
   }, [fromState, id]);
+
+  useEffect(() => {
+    if (!result || !focus) return;
+    // Let the list lay out, then bring the focused turn near the top. Fabric's
+    // `measureLayout` rejects raw scroll node handles, so we diff two on-screen
+    // `measure`s instead: the scroll viewport is at offset 0 on fresh entry, so
+    // the target's screen offset from the viewport top is the amount to scroll.
+    const timer = setTimeout(() => {
+      const scroll = scrollRef.current;
+      const wrap = scrollWrapRef.current;
+      const target = focusRef.current;
+      if (!scroll || !wrap || !target) return;
+      wrap.measure((_wx, _wy, _ww, _wh, _wpx, wrapPageY) => {
+        target.measure((_tx, _ty, _tw, _th, _tpx, targetPageY) => {
+          scroll.scrollTo({ y: Math.max(0, targetPageY - wrapPageY - 24), animated: true });
+        });
+      });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [result, focus]);
 
   if (!result) {
     return (
@@ -56,13 +91,46 @@ export default function ResultScreen() {
   const vocabulary = result.vocabulary?.slice(0, 5) ?? [];
   const culturalClues = result.culturalClues?.slice(0, 3) ?? [];
 
+  const sessionId = result.id;
+  const savedIds = new Set(savedItems.map((i) => i.id));
+
+  const toggleVocab = (item: VocabularyItem) => {
+    const savedId = vocabItemId(sessionId, item.term);
+    if (savedIds.has(savedId)) {
+      void removeSavedItem(savedId);
+    } else {
+      void addSavedItem({
+        id: savedId,
+        type: "phrase",
+        createdDate: new Date().toISOString(),
+        sourceSessionId: sessionId,
+        data: item,
+      });
+    }
+  };
+
+  const toggleMoment = (moment: FeedbackMoment) => {
+    const savedId = momentItemId(sessionId, moment);
+    if (savedIds.has(savedId)) {
+      void removeSavedItem(savedId);
+    } else {
+      void addSavedItem({
+        id: savedId,
+        type: "suggestion",
+        createdDate: new Date().toISOString(),
+        sourceSessionId: sessionId,
+        data: moment,
+      });
+    }
+  };
+
   return (
     <SafeAreaView
       style={[styles.screen, { backgroundColor: colors.bg }]}
       edges={["top"]}
     >
       <View style={styles.navBar}>
-        <Pressable onPress={() => router.replace("/(tabs)")} hitSlop={12}>
+        <Pressable onPress={handleClose} hitSlop={12}>
           <Ionicons name="close" size={26} color={colors.text} />
         </Pressable>
 
@@ -71,7 +139,9 @@ export default function ResultScreen() {
         <View style={{ width: 26 }} />
       </View>
 
+      <View ref={scrollWrapRef} collapsable={false} style={styles.scrollWrap}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
@@ -139,7 +209,14 @@ export default function ResultScreen() {
           <Panel title="Vocabulary" icon="book-outline" iconColor="#38BDF8" lt={lt}>
             <View style={styles.studyList}>
               {vocabulary.map((item, i) => (
-                <VocabularyCard key={`${item.term}_${i}`} item={item} lt={lt} />
+                <VocabularyCard
+                  key={`${item.term}_${i}`}
+                  item={item}
+                  lt={lt}
+                  accent={colors.accent}
+                  saved={savedIds.has(vocabItemId(sessionId, item.term))}
+                  onToggleSave={() => toggleVocab(item)}
+                />
               ))}
             </View>
           </Panel>
@@ -196,10 +273,14 @@ export default function ResultScreen() {
             {result.dialog.map((turn, i) => {
               const isUser = turn.speaker === "user";
               const attachedMoments = getMomentsForTurn(turn, result.moments ?? []);
+              const isFocusTurn =
+                !!focus &&
+                attachedMoments.some((m) => normalize(m.quote) === normalize(focus));
 
               return (
                 <View
                   key={`${turn.t}_${i}`}
+                  ref={isFocusTurn ? focusRef : undefined}
                   style={[
                     styles.turnGroup,
                     { alignSelf: isUser ? "flex-end" : "flex-start" },
@@ -249,6 +330,9 @@ export default function ResultScreen() {
                       moment={moment}
                       accent={colors.accent}
                       lt={lt}
+                      saved={savedIds.has(momentItemId(sessionId, moment))}
+                      onToggleSave={() => toggleMoment(moment)}
+                      highlighted={!!focus && normalize(moment.quote) === normalize(focus)}
                     />
                   ))}
                 </View>
@@ -257,6 +341,7 @@ export default function ResultScreen() {
           </View>
         </Panel>
       </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -291,13 +376,57 @@ function buildHero(score: number): { emoji: string; title: string; subtitle: str
 }
 
 
-function VocabularyCard({ item, lt }: { item: VocabularyItem; lt: boolean }) {
+/** Stable ids so a bookmark toggles cleanly and cloud upserts stay idempotent. */
+function vocabItemId(sessionId: string, term: string): string {
+  return `phrase:${sessionId}:${normalize(term)}`;
+}
+
+function momentItemId(sessionId: string, moment: FeedbackMoment): string {
+  return `suggestion:${sessionId}:${moment.type}:${normalize(moment.quote)}`;
+}
+
+function BookmarkButton({
+  saved,
+  onPress,
+  color,
+}: {
+  saved: boolean;
+  onPress: () => void;
+  color: string;
+}) {
+  return (
+    <Pressable onPress={onPress} hitSlop={10} style={styles.bookmarkBtn}>
+      <Ionicons
+        name={saved ? "bookmark" : "bookmark-outline"}
+        size={20}
+        color={color}
+      />
+    </Pressable>
+  );
+}
+
+function VocabularyCard({
+  item,
+  lt,
+  accent,
+  saved,
+  onToggleSave,
+}: {
+  item: VocabularyItem;
+  lt: boolean;
+  accent: string;
+  saved: boolean;
+  onToggleSave: () => void;
+}) {
   return (
     <View style={[styles.studyCard, styles.vocabCard, lt && lightStyles.vocabCard]}>
       <View style={styles.studyTopRow}>
         <Text style={[styles.vocabTerm, lt && lightStyles.vocabTerm]}>{item.term}</Text>
-        <View style={[styles.vocabBadge, lt && lightStyles.vocabBadge]}>
-          <Text style={[styles.vocabBadgeText, lt && lightStyles.vocabBadgeText]}>WORD</Text>
+        <View style={styles.studyTopActions}>
+          <View style={[styles.vocabBadge, lt && lightStyles.vocabBadge]}>
+            <Text style={[styles.vocabBadgeText, lt && lightStyles.vocabBadgeText]}>WORD</Text>
+          </View>
+          <BookmarkButton saved={saved} onPress={onToggleSave} color={accent} />
         </View>
       </View>
       <Text style={[styles.studyQuote, lt && lightStyles.studyQuote]}>“{item.quote}”</Text>
@@ -350,20 +479,32 @@ function InlineMomentCard({
   moment,
   accent,
   lt,
+  saved,
+  onToggleSave,
+  highlighted,
 }: {
   moment: FeedbackMoment;
   accent: string;
   lt: boolean;
+  saved: boolean;
+  onToggleSave: () => void;
+  highlighted: boolean;
 }) {
   const meta = getMomentMeta(moment.type, accent, lt);
 
   return (
-    <View style={[styles.inlineMoment, { borderColor: meta.border, backgroundColor: meta.bg }]}>
+    <View
+      style={[
+        styles.inlineMoment,
+        { borderColor: meta.border, backgroundColor: meta.bg },
+        highlighted && { borderWidth: 2.5, shadowColor: meta.border, shadowOpacity: 0.4, shadowRadius: 10, elevation: 4 },
+      ]}
+    >
       <View style={styles.inlineTopRow}>
         <Text style={[styles.inlineLabel, { color: meta.border }]}>
           {meta.emoji} {meta.label}
         </Text>
-        <Ionicons name="chevron-forward" size={18} color={meta.border} />
+        <BookmarkButton saved={saved} onPress={onToggleSave} color={meta.border} />
       </View>
       <Text style={[styles.inlineTitle, lt && lightStyles.inlineTitle]}>{moment.title}</Text>
       <Text style={[styles.inlineBody, lt && lightStyles.inlineBody]}>{moment.explanation}</Text>
@@ -434,6 +575,10 @@ function fmt(t: number): string {
 
 const styles = StyleSheet.create({
   screen: {
+    flex: 1,
+  },
+
+  scrollWrap: {
     flex: 1,
   },
 
@@ -629,6 +774,16 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12,
+  },
+
+  studyTopActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  bookmarkBtn: {
+    padding: 2,
   },
 
   vocabTerm: {

@@ -1,4 +1,4 @@
-import type { SavedPhrase, SessionResult, UserProfile } from "../types";
+import type { SavedItem, SessionResult, UserProfile } from "../types";
 import { supabase } from "./supabase";
 
 /**
@@ -9,11 +9,11 @@ import { supabase } from "./supabase";
  * login-time sync. It never touches AsyncStorage; the local cache is owned by
  * `lib/storage.ts` and orchestrated by `AppDataContext`.
  *
- * Tables (see the SQL schema): `profiles`, `sessions`, `saved_phrases`, all
+ * Tables (see the SQL schema): `profiles`, `sessions`, `saved_items`, all
  * guarded by Row Level Security so `auth.uid()` only ever sees its own rows.
- * Each session's rich nested fields ride along in a single `data` jsonb column,
- * so the row is a superset of the queryable columns and the full
- * `SessionResult`.
+ * Both `sessions` and `saved_items` keep their rich nested fields in a single
+ * `data` jsonb column, so each row is a superset of its queryable columns and
+ * the full domain object.
  */
 
 // ----- Row <-> domain mapping ----------------------------------------------
@@ -42,12 +42,12 @@ interface ProfileRow {
   updated_at: string;
 }
 
-interface PhraseRow {
+interface SavedItemRow {
   id: string;
   user_id: string;
-  text: string;
-  kind: SavedPhrase["kind"];
+  type: SavedItem["type"];
   created_date: string;
+  data: SavedItem;
 }
 
 function sessionToRow(userId: string, s: SessionResult): SessionRow {
@@ -89,22 +89,13 @@ function rowToProfile(row: ProfileRow): UserProfile {
   };
 }
 
-function phraseToRow(userId: string, p: SavedPhrase): PhraseRow {
+function savedItemToRow(userId: string, item: SavedItem): SavedItemRow {
   return {
-    id: p.id,
+    id: item.id,
     user_id: userId,
-    text: p.text,
-    kind: p.kind,
-    created_date: p.createdDate,
-  };
-}
-
-function rowToPhrase(row: PhraseRow): SavedPhrase {
-  return {
-    id: row.id,
-    text: row.text,
-    kind: row.kind,
-    createdDate: row.created_date,
+    type: item.type,
+    created_date: item.createdDate,
+    data: item,
   };
 }
 
@@ -124,10 +115,10 @@ export async function pushProfile(userId: string, p: UserProfile): Promise<void>
   if (error) throw error;
 }
 
-export async function pushPhrase(userId: string, p: SavedPhrase): Promise<void> {
+export async function pushSavedItem(userId: string, item: SavedItem): Promise<void> {
   const { error } = await supabase
-    .from("saved_phrases")
-    .upsert(phraseToRow(userId, p));
+    .from("saved_items")
+    .upsert(savedItemToRow(userId, item));
   if (error) throw error;
 }
 
@@ -140,9 +131,9 @@ export async function deleteSessionRemote(userId: string, id: string): Promise<v
   if (error) throw error;
 }
 
-export async function deletePhraseRemote(userId: string, id: string): Promise<void> {
+export async function deleteSavedItemRemote(userId: string, id: string): Promise<void> {
   const { error } = await supabase
-    .from("saved_phrases")
+    .from("saved_items")
     .delete()
     .eq("user_id", userId)
     .eq("id", id);
@@ -154,7 +145,7 @@ export async function deletePhraseRemote(userId: string, id: string): Promise<vo
 export interface MergedData {
   sessions: SessionResult[];
   profile: UserProfile | null;
-  phrases: SavedPhrase[];
+  savedItems: SavedItem[];
 }
 
 /** Union two id-keyed lists, preferring `a`'s copy on collisions. */
@@ -168,7 +159,7 @@ function unionById<T extends { id: string }>(a: T[], b: T[]): T[] {
 /**
  * Reconcile local state with Supabase on login.
  *
- * - Sessions & phrases are unioned by id in both directions: anything the
+ * - Sessions & saved items are unioned by id in both directions: anything the
  *   device has that the cloud doesn't gets pushed up, and vice-versa.
  * - Profile: the cloud copy wins if one exists (kept fresh by write-through on
  *   every edit); otherwise the local profile is pushed up as the first copy.
@@ -178,33 +169,33 @@ function unionById<T extends { id: string }>(a: T[], b: T[]): T[] {
  */
 export async function syncOnLogin(
   userId: string,
-  local: { sessions: SessionResult[]; profile: UserProfile; phrases: SavedPhrase[] }
+  local: { sessions: SessionResult[]; profile: UserProfile; savedItems: SavedItem[] }
 ): Promise<MergedData> {
-  const [sessionsRes, profileRes, phrasesRes] = await Promise.all([
+  const [sessionsRes, profileRes, savedRes] = await Promise.all([
     supabase.from("sessions").select("*").eq("user_id", userId),
     supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
-    supabase.from("saved_phrases").select("*").eq("user_id", userId),
+    supabase.from("saved_items").select("*").eq("user_id", userId),
   ]);
 
   if (sessionsRes.error) throw sessionsRes.error;
   if (profileRes.error) throw profileRes.error;
-  if (phrasesRes.error) throw phrasesRes.error;
+  if (savedRes.error) throw savedRes.error;
 
   const remoteSessions = (sessionsRes.data as SessionRow[]).map((r) => r.data);
-  const remotePhrases = (phrasesRes.data as PhraseRow[]).map(rowToPhrase);
+  const remoteSavedItems = (savedRes.data as SavedItemRow[]).map((r) => r.data);
   const remoteProfile = profileRes.data
     ? rowToProfile(profileRes.data as ProfileRow)
     : null;
 
   // Merge (local wins on id collisions — device is the fresher editor of a row).
   const mergedSessions = unionById(local.sessions, remoteSessions);
-  const mergedPhrases = unionById(local.phrases, remotePhrases);
+  const mergedSavedItems = unionById(local.savedItems, remoteSavedItems);
 
   // Push records the cloud is missing.
   const remoteSessionIds = new Set(remoteSessions.map((s) => s.id));
-  const remotePhraseIds = new Set(remotePhrases.map((p) => p.id));
+  const remoteSavedIds = new Set(remoteSavedItems.map((i) => i.id));
   const sessionsToPush = local.sessions.filter((s) => !remoteSessionIds.has(s.id));
-  const phrasesToPush = local.phrases.filter((p) => !remotePhraseIds.has(p.id));
+  const savedToPush = local.savedItems.filter((i) => !remoteSavedIds.has(i.id));
 
   const writes: PromiseLike<unknown>[] = [];
   if (sessionsToPush.length > 0) {
@@ -214,11 +205,11 @@ export async function syncOnLogin(
         .upsert(sessionsToPush.map((s) => sessionToRow(userId, s)))
     );
   }
-  if (phrasesToPush.length > 0) {
+  if (savedToPush.length > 0) {
     writes.push(
       supabase
-        .from("saved_phrases")
-        .upsert(phrasesToPush.map((p) => phraseToRow(userId, p)))
+        .from("saved_items")
+        .upsert(savedToPush.map((i) => savedItemToRow(userId, i)))
     );
   }
 
@@ -229,5 +220,5 @@ export async function syncOnLogin(
 
   await Promise.all(writes);
 
-  return { sessions: mergedSessions, profile, phrases: mergedPhrases };
+  return { sessions: mergedSessions, profile, savedItems: mergedSavedItems };
 }

@@ -8,25 +8,25 @@ import React, {
   useState,
 } from "react";
 
-import type { SavedPhrase, SessionResult, UserProfile } from "../types";
+import type { SavedItem, SessionResult, UserProfile } from "../types";
 import {
-  deletePhraseRemote,
+  deleteSavedItemRemote,
   deleteSessionRemote,
-  pushPhrase,
   pushProfile,
+  pushSavedItem,
   pushSession,
   syncOnLogin,
 } from "../lib/cloud";
 import {
   DEFAULT_PROFILE,
-  deletePhrase as deletePhraseStore,
+  deleteSavedItem as deleteSavedItemStore,
   deleteSession as deleteSessionStore,
   getProfile,
-  listPhrases,
+  listSavedItems,
   listSessions,
-  replacePhrases,
+  replaceSavedItems,
   replaceSessions,
-  savePhrase as savePhraseStore,
+  saveSavedItem as saveSavedItemStore,
   saveProfile,
   saveSession,
 } from "../lib/storage";
@@ -45,13 +45,13 @@ import { useAuth } from "./AuthContext";
 interface AppDataValue {
   sessions: SessionResult[];
   profile: UserProfile;
-  phrases: SavedPhrase[];
+  savedItems: SavedItem[];
   ready: boolean;
   addSession: (session: SessionResult) => Promise<void>;
   removeSession: (id: string) => Promise<void>;
   updateProfile: (profile: UserProfile) => Promise<void>;
-  addPhrase: (phrase: SavedPhrase) => Promise<void>;
-  removePhrase: (id: string) => Promise<void>;
+  addSavedItem: (item: SavedItem) => Promise<void>;
+  removeSavedItem: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -64,7 +64,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<SessionResult[]>([]);
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
-  const [phrases, setPhrases] = useState<SavedPhrase[]>([]);
+  const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
   const [ready, setReady] = useState(false);
 
   // Latest user id available to write-through callbacks without re-creating them.
@@ -72,14 +72,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   userIdRef.current = user?.id ?? null;
 
   const refresh = useCallback(async () => {
-    const [s, p, ph] = await Promise.all([
+    const [s, p, items] = await Promise.all([
       listSessions(),
       getProfile(),
-      listPhrases(),
+      listSavedItems(),
     ]);
     setSessions(s);
     setProfile(p);
-    setPhrases(ph);
+    setSavedItems(items);
   }, []);
 
   useEffect(() => {
@@ -94,26 +94,26 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const [localSessions, localProfile, localPhrases] = await Promise.all([
+        const [localSessions, localProfile, localSavedItems] = await Promise.all([
           listSessions(),
           getProfile(),
-          listPhrases(),
+          listSavedItems(),
         ]);
         const merged = await syncOnLogin(userId, {
           sessions: localSessions,
           profile: localProfile,
-          phrases: localPhrases,
+          savedItems: localSavedItems,
         });
         if (cancelled) return;
 
         const nextSessions = sortByDate(merged.sessions);
         await Promise.all([
           replaceSessions(nextSessions),
-          replacePhrases(merged.phrases),
+          replaceSavedItems(merged.savedItems),
           merged.profile ? saveProfile(merged.profile) : Promise.resolve(),
         ]);
         setSessions(nextSessions);
-        setPhrases(merged.phrases);
+        setSavedItems(merged.savedItems);
         if (merged.profile) setProfile(merged.profile);
       } catch {
         // Offline or transient error — keep the local cache; retry next login.
@@ -148,43 +148,43 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (uid) pushProfile(uid, next).catch(() => {});
   }, []);
 
-  const addPhrase = useCallback(async (phrase: SavedPhrase) => {
-    await savePhraseStore(phrase);
-    setPhrases(await listPhrases());
+  const addSavedItem = useCallback(async (item: SavedItem) => {
+    await saveSavedItemStore(item);
+    setSavedItems(await listSavedItems());
     const uid = userIdRef.current;
-    if (uid) pushPhrase(uid, phrase).catch(() => {});
+    if (uid) pushSavedItem(uid, item).catch(() => {});
   }, []);
 
-  const removePhrase = useCallback(async (id: string) => {
-    await deletePhraseStore(id);
-    setPhrases((prev) => prev.filter((p) => p.id !== id));
+  const removeSavedItem = useCallback(async (id: string) => {
+    await deleteSavedItemStore(id);
+    setSavedItems((prev) => prev.filter((i) => i.id !== id));
     const uid = userIdRef.current;
-    if (uid) deletePhraseRemote(uid, id).catch(() => {});
+    if (uid) deleteSavedItemRemote(uid, id).catch(() => {});
   }, []);
 
   const value = useMemo<AppDataValue>(
     () => ({
       sessions,
       profile,
-      phrases,
+      savedItems,
       ready,
       addSession,
       removeSession,
       updateProfile,
-      addPhrase,
-      removePhrase,
+      addSavedItem,
+      removeSavedItem,
       refresh,
     }),
     [
       sessions,
       profile,
-      phrases,
+      savedItems,
       ready,
       addSession,
       removeSession,
       updateProfile,
-      addPhrase,
-      removePhrase,
+      addSavedItem,
+      removeSavedItem,
       refresh,
     ]
   );

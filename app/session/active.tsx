@@ -24,9 +24,53 @@ import {
   normalizeVapiConversation,
 } from "../../lib/ai/vapiTranscript";
 import { cardShadow, spacing, radius, typography } from "../../styles/global";
-import type { DialogTurn, NewsTopic, SceneContext, TopicId } from "../../types";
+import type {
+  AssistantSetup,
+  DialogTurn,
+  NewsTopic,
+  SceneContext,
+  TopicId,
+} from "../../types";
 
 const SESSION_SECONDS = 180;
+
+/**
+ * Pull the composed prompt out of the per-call Vapi overrides so it can be
+ * persisted on the session and replayed later. The system prompt rides in
+ * `model.messages`; the opening line in `firstMessage`.
+ */
+function extractAssistantSetup(
+  overrides: Record<string, unknown>
+): AssistantSetup | undefined {
+  const model = overrides.model as
+    | { messages?: { role?: string; content?: unknown }[] }
+    | undefined;
+  const systemMessage = model?.messages?.find((m) => m?.role === "system");
+  const systemPrompt =
+    typeof systemMessage?.content === "string" ? systemMessage.content : "";
+  if (!systemPrompt) return undefined;
+
+  const firstMessage =
+    typeof overrides.firstMessage === "string" ? overrides.firstMessage : undefined;
+  return { systemPrompt, firstMessage };
+}
+
+/**
+ * Splice a previously-captured prompt back into fresh overrides for a
+ * re-practice run. The overrides come from a generic (no-Groq) session fetch,
+ * so the model provider/model and webhook plumbing stay intact — only the
+ * system prompt and opening line are replaced with the saved ones.
+ */
+function applyAssistantSetup(
+  overrides: Record<string, unknown>,
+  setup: AssistantSetup
+): void {
+  const model = (overrides.model as Record<string, unknown>) ?? {};
+  model.messages = [{ role: "system", content: setup.systemPrompt }];
+  overrides.model = model;
+  if (setup.firstMessage) overrides.firstMessage = setup.firstMessage;
+  else delete overrides.firstMessage;
+}
 
 /** Daily audio level is a small RMS-ish value; scale it up like Vapi does. */
 const LOCAL_LEVEL_GAIN = 0.15;
@@ -63,7 +107,13 @@ export default function ActiveSession() {
     newsContext?: string;
     sceneContext?: string;
     presetSlug?: string;
+    assistantSetup?: string;
+    groupId?: string;
   }>();
+  const groupId = useMemo(() => {
+    const raw = typeof params.groupId === "string" ? params.groupId.trim() : "";
+    return raw.length > 0 ? raw : undefined;
+  }, [params.groupId]);
   const presetSlug = useMemo(() => {
     const raw = typeof params.presetSlug === "string" ? params.presetSlug.trim() : "";
     return raw.length > 0 ? raw : undefined;
@@ -99,6 +149,24 @@ export default function ActiveSession() {
     }
   }, [params.sceneContext]);
 
+  // Re-practice: a previously-captured prompt to replay verbatim (no Groq).
+  // When present, the session is started from this instead of composing anew.
+  const replaySetup = useMemo<AssistantSetup | undefined>(() => {
+    const raw =
+      typeof params.assistantSetup === "string" ? params.assistantSetup.trim() : "";
+
+    if (!raw) return undefined;
+
+    try {
+      const parsed = JSON.parse(raw) as AssistantSetup;
+      return typeof parsed?.systemPrompt === "string" && parsed.systemPrompt
+        ? parsed
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [params.assistantSetup]);
+
   const headerLabel = newsContext?.short ?? title ?? "Open chat";
   const headerEmoji = sceneContext || presetSlug ? "🎭" : title ? "📰" : "💬";
 
@@ -124,6 +192,13 @@ export default function ActiveSession() {
   const titleRef = useRef(title);
   const newsContextRef = useRef<NewsTopic | undefined>(newsContext);
   const sceneContextRef = useRef<SceneContext | undefined>(sceneContext);
+  // The composed prompt this session ran with — the replay setup up front, then
+  // the freshly-captured one once the session config resolves. Persisted on the
+  // result so the session can be re-practiced later.
+  const assistantSetupRef = useRef<AssistantSetup | undefined>(replaySetup);
+  // The practice group this session belongs to — carried on a re-practice so
+  // the new attempt joins the originating session's Library card.
+  const groupIdRef = useRef<string | undefined>(groupId);
 
   const elapsedRef = useRef(0);
   elapsedRef.current = SESSION_SECONDS - remaining;
@@ -151,6 +226,14 @@ export default function ActiveSession() {
   useEffect(() => {
     sceneContextRef.current = sceneContext;
   }, [sceneContext]);
+
+  useEffect(() => {
+    assistantSetupRef.current = replaySetup;
+  }, [replaySetup]);
+
+  useEffect(() => {
+    groupIdRef.current = groupId;
+  }, [groupId]);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -246,6 +329,8 @@ export default function ActiveSession() {
         sceneContextRef.current
       )),
       vapiCallId: vapiCallIdRef.current,
+      assistantSetup: assistantSetupRef.current,
+      groupId: groupIdRef.current,
     };
 
     try {
@@ -299,14 +384,25 @@ export default function ActiveSession() {
       try {
         // The Vapi credentials and per-call overrides are issued by the
         // backend Edge Function (JWT-gated); nothing Vapi-related ships in
-        // the bundle or in client env vars.
-        const session = await fetchVapiSession(
-          title ?? undefined,
-          newsContext,
-          sceneContext,
-          presetSlug,
-        );
+        // the bundle or in client env vars. On a re-practice run we fetch a
+        // generic session (no topic/scene/preset — so no Groq) purely for a
+        // fresh token + plumbing, then splice the saved prompt back in.
+        const session = replaySetup
+          ? await fetchVapiSession()
+          : await fetchVapiSession(
+              title ?? undefined,
+              newsContext,
+              sceneContext,
+              presetSlug,
+            );
         if (!active || finishedRef.current || finishScheduledRef.current) return;
+
+        if (replaySetup) {
+          applyAssistantSetup(session.overrides, replaySetup);
+          assistantSetupRef.current = replaySetup;
+        } else {
+          assistantSetupRef.current = extractAssistantSetup(session.overrides);
+        }
 
         const client = createVapiClient(session.token);
         vapiRef.current = client;
@@ -443,6 +539,8 @@ export default function ActiveSession() {
           newsContext: newsContextRef.current,
           sceneContext: sceneContextRef.current,
           vapiCallId: vapiCallIdRef.current,
+          assistantSetup: assistantSetupRef.current,
+          groupId: groupIdRef.current,
         };
         void addSessionRef.current(result).catch(() => undefined);
       }
@@ -466,6 +564,7 @@ export default function ActiveSession() {
     newsContext,
     sceneContext,
     presetSlug,
+    replaySetup,
   ]);
 
   // countdown

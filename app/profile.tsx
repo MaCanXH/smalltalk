@@ -19,7 +19,8 @@ import type { UserProfile } from "../types";
 export default function ProfileScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { profile, updateProfile, sessions, phrases, removePhrase } = useAppData();
+  const { profile, updateProfile, sessions, savedItems, removeSavedItem } = useAppData();
+  const savedPhrases = savedItems.filter((i) => i.type === "phrase");
   const [draft, setDraft] = useState<UserProfile>(profile);
   const [dirty, setDirty] = useState(false);
 
@@ -72,25 +73,27 @@ export default function ProfileScreen() {
         )}
 
         <Text style={[typography.tiny, { color: colors.textFaint, marginTop: spacing.xl, marginBottom: spacing.sm }]}>
-          SAVED PHRASES ({phrases.length})
+          SAVED PHRASES ({savedPhrases.length})
         </Text>
-        {phrases.length === 0 ? (
+        {savedPhrases.length === 0 ? (
           <Text style={[typography.small, { color: colors.textFaint }]}>
             Bookmark phrases from your training results and they{"'"}ll show up here.
           </Text>
         ) : (
-          phrases.map((p) => (
+          savedPhrases.map((p) => (
             <View
               key={p.id}
               style={[styles.phrase, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.text, fontSize: 15 }}>“{p.text}”</Text>
-                <Text style={[typography.tiny, { color: colors.textFaint, marginTop: 2 }]}>
-                  {p.kind.toUpperCase()}
-                </Text>
+                <Text style={{ color: colors.text, fontSize: 15 }}>{p.data.term}</Text>
+                {p.data.meaning ? (
+                  <Text style={[typography.tiny, { color: colors.textFaint, marginTop: 2 }]}>
+                    {p.data.meaning}
+                  </Text>
+                ) : null}
               </View>
-              <Pressable onPress={() => removePhrase(p.id)} hitSlop={8}>
+              <Pressable onPress={() => removeSavedItem(p.id)} hitSlop={8}>
                 <Ionicons name="close-circle" size={20} color={colors.textFaint} />
               </Pressable>
             </View>

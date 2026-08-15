@@ -139,6 +139,19 @@ export interface CulturalClue {
   trySaying: string;
 }
 
+/**
+ * The composed Vapi assistant content a session actually ran with —
+ * captured from the per-call overrides so the exact same conversation can be
+ * re-practiced later. Unlike `sceneContext`/`newsContext` (the *inputs*), this
+ * is the resolved prompt, so replaying it needs no re-composition (no Groq).
+ */
+export interface AssistantSetup {
+  /** The full system prompt the assistant was started with. */
+  systemPrompt: string;
+  /** The assistant's opening line, when the call specified one. */
+  firstMessage?: string;
+}
+
 export interface SessionResult {
   id: string;
   /** ISO timestamp. */
@@ -167,6 +180,19 @@ export interface SessionResult {
   /** User-defined scenario (goal/role/scene) used to steer Vapi for this session. */
   sceneContext?: SceneContext;
   /**
+   * The composed assistant prompt this session ran with, captured from the
+   * per-call overrides. Enables "re-practice" — relaunching the exact same
+   * conversation without re-composing it. Absent on sessions recorded before
+   * this was captured.
+   */
+  assistantSetup?: AssistantSetup;
+  /**
+   * Groups re-practice attempts of the same scenario under one Library card.
+   * A fresh session leaves this unset (it is its own group, keyed by `id`); a
+   * re-practice attempt carries the originating group's key.
+   */
+  groupId?: string;
+  /**
    * Vapi's id for this call — joins the session to the server-side
    * `call_reports` row written by the end-of-call webhook.
    */
@@ -189,6 +215,31 @@ export interface SavedPhrase {
   kind: "stall" | "word" | "opener";
   createdDate: string;
 }
+
+/**
+ * A user-bookmarked item shown under Library → Saved. Two kinds share one
+ * collection, discriminated by `type`:
+ * - `phrase`: a vocabulary item bookmarked from a session's feedback.
+ * - `suggestion`: an AI coaching moment bookmarked from a transcript; it keeps
+ *   `sourceSessionId` so tapping it can deep-link back to that feedback.
+ */
+export type SavedItem =
+  | {
+      id: string;
+      type: "phrase";
+      createdDate: string;
+      /** Session this vocab item was bookmarked from, when known. */
+      sourceSessionId?: string;
+      data: VocabularyItem;
+    }
+  | {
+      id: string;
+      type: "suggestion";
+      createdDate: string;
+      /** Session whose feedback this suggestion links back to. */
+      sourceSessionId: string;
+      data: FeedbackMoment;
+    };
 
 export interface AppSettings {
   accent: string;
