@@ -14,7 +14,6 @@ import { useRouter } from "expo-router";
 
 import { useTheme } from "../../context/ThemeContext";
 import { useAppData } from "../../context/AppDataContext";
-import { getTopic } from "../../lib/ai/banks";
 import { cardShadow, spacing, radius, typography } from "../../styles/global";
 import type { SavedItem, SessionResult } from "../../types";
 
@@ -26,6 +25,30 @@ type SuggestionItem = Extract<SavedItem, { type: "suggestion" }>;
 
 const isPhrase = (i: SavedItem): i is PhraseItem => i.type === "phrase";
 const isSuggestion = (i: SavedItem): i is SuggestionItem => i.type === "suggestion";
+
+/** "2m 12s" / "45s" / "3m" — no raw seconds, no unnecessary precision. */
+function formatDuration(sec: number): string {
+  const total = Math.max(0, Math.round(sec));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m === 0) return `${s}s`;
+  if (s === 0) return `${m}m`;
+  return `${m}m ${s}s`;
+}
+
+/** "Aug 15 · 12:00 PM · 2m 12s" */
+function formatSessionMeta(dateIso: string, durationSec: number): string {
+  const d = new Date(dateIso);
+  const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${dateStr} · ${timeStr} · ${formatDuration(durationSec)}`;
+}
+
+/** Grade strings are "C — Getting there"; the tag only needs the descriptive half. */
+function progressLabel(grade: string): string {
+  const dash = grade.indexOf("—");
+  return (dash === -1 ? grade : grade.slice(dash + 1)).trim();
+}
 
 export default function LibraryScreen() {
   const { colors } = useTheme();
@@ -128,7 +151,7 @@ export default function LibraryScreen() {
 
   const subtitle =
     tab === "sessions"
-      ? `${sessions.length} training${sessions.length === 1 ? "" : "s"} saved on this device`
+      ? `${sessions.length} session${sessions.length === 1 ? "" : "s"}`
       : `${savedPhrases.length} phrase${savedPhrases.length === 1 ? "" : "s"} · ${savedSuggestions.length} suggestion${savedSuggestions.length === 1 ? "" : "s"}`;
 
   const placeholder =
@@ -170,7 +193,7 @@ export default function LibraryScreen() {
           ) : null}
         </View>
 
-        <Text style={[typography.body, { color: colors.textDim }]}>
+        <Text style={[styles.subtitle, { color: colors.textDim }]}>
           {subtitle}
         </Text>
 
@@ -303,24 +326,21 @@ function SessionGroupCard({
   onDelete: (id: string) => void;
 }) {
   const repr = attempts[0];
-  const topic = getTopic(repr.topic);
   const count = attempts.length;
+  const progress = progressLabel(repr.grade);
   return (
     <View style={[styles.groupCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Pressable onPress={onToggle} style={styles.groupHeader}>
-        <View style={[styles.scoreChip, { backgroundColor: colors.accentSoft }]}>
-          <Text style={[styles.scoreNum, { color: colors.accent }]}>{repr.finalScore}</Text>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[typography.h3, { color: colors.text }]} numberOfLines={1}>
-            {topic.emoji} {repr.topicLabel}
+      <View style={styles.groupHeader}>
+        <Pressable onPress={() => onOpen(repr)} style={{ flex: 1 }}>
+          <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
+            {repr.topicLabel}
           </Text>
-          <Text style={[typography.tiny, { color: colors.textFaint, marginTop: 4 }]}>
-            {new Date(repr.date).toLocaleString()} · {Math.round(repr.durationSec)}s
+          <Text style={[styles.cardMeta, { color: colors.textDim }]}>
+            {formatSessionMeta(repr.date, repr.durationSec)}
           </Text>
           <View style={styles.chipRow}>
-            <View style={[styles.gradeChip, { backgroundColor: colors.accentSoft }]}>
-              <Text style={[styles.gradeChipText, { color: colors.accent }]}>{repr.grade}</Text>
+            <View style={[styles.progressChip, { backgroundColor: colors.accentSoft }]}>
+              <Text style={[styles.progressChipText, { color: colors.accent }]}>{progress}</Text>
             </View>
             <View style={[styles.countChip, { backgroundColor: colors.surfaceAlt }]}>
               <Ionicons name="repeat" size={12} color={colors.textDim} />
@@ -328,21 +348,28 @@ function SessionGroupCard({
                 {count} attempt{count === 1 ? "" : "s"}
               </Text>
             </View>
+            {repr.assistantSetup ? (
+              <Pressable
+                onPress={() => onRePractice(repr)}
+                hitSlop={6}
+                style={[styles.rePracticeBtn, { backgroundColor: colors.accent }]}
+              >
+                <Ionicons name="refresh" size={12} color="#fff" />
+                <Text style={styles.rePracticeBtnText}>Re-practice</Text>
+              </Pressable>
+            ) : null}
           </View>
-        </View>
+        </Pressable>
         <View style={styles.actions}>
-          {repr.assistantSetup ? (
-            <Pressable onPress={() => onRePractice(repr)} hitSlop={8} style={styles.actionBtn}>
-              <Ionicons name="refresh" size={20} color={colors.accent} />
-            </Pressable>
-          ) : null}
-          <Ionicons
-            name={expanded ? "chevron-up" : "chevron-down"}
-            size={20}
-            color={colors.textFaint}
-          />
+          <Pressable onPress={onToggle} hitSlop={8} style={styles.actionBtn}>
+            <Ionicons
+              name={expanded ? "chevron-up" : "chevron-down"}
+              size={20}
+              color={colors.textFaint}
+            />
+          </Pressable>
         </View>
-      </Pressable>
+      </View>
 
       {expanded ? (
         <View style={styles.attemptList}>
@@ -352,15 +379,10 @@ function SessionGroupCard({
                 <Text style={[styles.attemptLabel, { color: colors.text }]}>
                   Attempt {count - idx}
                 </Text>
-                <Text style={[typography.tiny, { color: colors.textFaint, marginTop: 2 }]}>
-                  {new Date(s.date).toLocaleString()}
+                <Text style={[styles.cardMeta, { color: colors.textFaint, marginTop: 2 }]}>
+                  {formatSessionMeta(s.date, s.durationSec)}
                 </Text>
               </Pressable>
-              <View style={[styles.attemptScore, { backgroundColor: colors.accentSoft }]}>
-                <Text style={[styles.attemptScoreText, { color: colors.accent }]}>
-                  {s.finalScore}
-                </Text>
-              </View>
               <Pressable onPress={() => onDelete(s.id)} hitSlop={8} style={styles.actionBtn}>
                 <Ionicons name="trash-outline" size={18} color={colors.textFaint} />
               </Pressable>
@@ -482,7 +504,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   searchInput: { flex: 1, fontSize: 15, padding: 0 },
-  content: { padding: spacing.lg, gap: spacing.sm },
+  subtitle: { fontSize: 13.5, fontWeight: "500" },
+  content: { padding: spacing.lg, gap: 14 },
   empty: {
     borderWidth: 1,
     borderStyle: "dashed",
@@ -500,23 +523,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
   },
-  scoreChip: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scoreNum: { fontSize: 20, fontWeight: "900" },
-  chipRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
-  gradeChip: {
+  cardTitle: { fontSize: 17, fontWeight: "700" },
+  cardMeta: { fontSize: 12.5, fontWeight: "500", marginTop: 4 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 8 },
+  progressChip: {
     borderRadius: radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  gradeChipText: { fontSize: 11, fontWeight: "700" },
+  progressChipText: { fontSize: 11.5, fontWeight: "600" },
   countChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -525,7 +543,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  countChipText: { fontSize: 11, fontWeight: "700" },
+  countChipText: { fontSize: 11, fontWeight: "600" },
+  rePracticeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  rePracticeBtnText: { fontSize: 11, fontWeight: "700", color: "#fff" },
   actions: { flexDirection: "row", alignItems: "center", gap: 4 },
   actionBtn: { padding: 4 },
   attemptList: {
@@ -541,14 +568,6 @@ const styles = StyleSheet.create({
   },
   attemptMain: { flex: 1 },
   attemptLabel: { fontSize: 14, fontWeight: "700" },
-  attemptScore: {
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    minWidth: 36,
-    alignItems: "center",
-  },
-  attemptScoreText: { fontSize: 14, fontWeight: "800" },
   savedCard: {
     borderWidth: 1,
     borderRadius: radius.lg,
