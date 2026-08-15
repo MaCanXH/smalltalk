@@ -1,7 +1,7 @@
 import { handleFeedback } from "./feedback.ts";
 import { handleHotTopics } from "./hotTopics.ts";
 import { handleSceneCompose } from "./sceneCompose.ts";
-import { handleTranscribe } from "./transcribe.ts";
+import { handleSceneDefault } from "./scenePresets.ts";
 import { handleVapiSession } from "./vapiSession.ts";
 
 /**
@@ -46,12 +46,12 @@ Deno.serve(async (req) => {
     return withCors(await handleVapiSession(req));
   }
 
-  if (req.method === "POST" && pathname.endsWith("/scene/transcribe")) {
-    return withCors(await handleTranscribe(req));
-  }
-
   if (req.method === "POST" && pathname.endsWith("/scene/compose")) {
     return withCors(await handleSceneCompose(req));
+  }
+
+  if (req.method === "GET" && pathname.endsWith("/scene/default")) {
+    return withCors(await handleSceneDefault(req));
   }
 
   return withCors(Response.json({ error: "Not found" }, { status: 404 }));

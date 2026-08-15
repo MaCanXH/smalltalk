@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { SignJWT } from "npm:jose@5";
 
 import { requireUser } from "./auth.ts";
+import { groq } from "./groq.ts";
 
 /**
  * POST /api/vapi/session — issues the per-call Vapi token + config to the app.
@@ -120,7 +121,15 @@ interface SceneContext {
   goal?: string;
   role?: string;
   scene?: string;
+  personality?: string;
 }
+
+interface AssistantContent {
+  systemPrompt: string;
+  firstMessage?: string;
+}
+
+const DEFAULT_PERSONALITY = "Friendly and supportive.";
 
 interface NewsContext {
   short?: string;
@@ -160,6 +169,10 @@ Conversation behavior:
 - If a topic stalls, smoothly pivot with an icebreaker question.
 - Don't claim real-world identity; you're a fictional conversational partner.`;
 
+/**
+ * Static fallback prompt for a user-defined scene — used only when the Groq
+ * scene builder is unavailable or errors, so a session always starts.
+ */
 function buildScenePrompt(sceneContext: SceneContext): string {
   return `You are role-playing for a language-learner's practice conversation.
 
@@ -168,6 +181,9 @@ Your role:
 
 Scene / setting:
 - ${sceneContext.scene ?? "A casual, everyday conversation."}
+
+Your personality:
+- ${sceneContext.personality?.trim() || DEFAULT_PERSONALITY}
 
 The caller's practice goal (do not state this out loud, just support it):
 - ${sceneContext.goal ?? "Have a natural, confident conversation."}
@@ -184,12 +200,108 @@ Safety & boundaries:
 - If the caller seems stuck, gently prompt them with a simple in-character question rather than breaking the scene.`;
 }
 
+/**
+ * Look up a pre-authored default-scene preset by slug. The prompt + opening
+ * line were written by hand and stored in `scene_presets`, so the default
+ * path needs no Groq at runtime. Returns null if the preset store is
+ * unconfigured or the slug isn't found/active.
+ */
+async function fetchPresetAssistant(slug: string): Promise<AssistantContent | null> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) return null;
+
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data, error } = await admin
+    .from("scene_presets")
+    .select("prompt, first_message")
+    .eq("slug", slug)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Preset lookup failed:", error.message);
+    return null;
+  }
+  if (!data?.prompt) return null;
+
+  return {
+    systemPrompt: data.prompt,
+    firstMessage: typeof data.first_message === "string" ? data.first_message : undefined,
+  };
+}
+
+const SCENE_BUILDER_SYSTEM = `You write the system prompt for a role-playing AI voice partner used in a language-learner's practice conversation. You are given a structured scene (goal, role, scene, personality). Return only valid JSON.
+
+Produce:
+- "systemPrompt": a complete, drop-in system prompt that puts the AI fully in character. It MUST:
+  - Describe who the AI is and the setting, grounded in the given role and scene.
+  - Fold in the given personality/tone.
+  - Instruct: stay fully in character, never mention this is practice or that it's an AI; keep replies short (1-3 sentences) and easy to say out loud; react then ask one natural follow-up question; support the learner's goal without stating it aloud.
+  - Include a short safety block: don't ask for sensitive personal data (full name, address, passwords, money); avoid explicit, hateful, or unsafe content; if the learner goes quiet, offer an easy in-character opener instead of breaking character.
+- "firstMessage": the AI's opening line — one natural, in-character sentence that fits the scene and personality.
+
+Write in plain, natural English. Do not use the learner's practice goal as a spoken line.`;
+
+/**
+ * Turn a user-defined scene into a full assistant prompt + opening line via
+ * Groq. This is the "user inputs -> LLM -> assistant" step for typed/voice
+ * scenes (default presets skip it — their prompts are pre-authored). Returns
+ * null on any failure so the caller can fall back to the static template.
+ */
+async function buildSceneAssistant(sceneContext: SceneContext): Promise<AssistantContent | null> {
+  const scene: SceneContext = {
+    ...sceneContext,
+    personality: sceneContext.personality?.trim() || DEFAULT_PERSONALITY,
+  };
+
+  try {
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      temperature: 0.6,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SCENE_BUILDER_SYSTEM },
+        {
+          role: "user",
+          content: `Scene:
+- Role (who the AI plays): ${scene.role ?? "A conversation partner suited to the scene."}
+- Scene / setting: ${scene.scene ?? "A casual, everyday conversation."}
+- Personality: ${scene.personality}
+- Learner's practice goal (do not say aloud): ${scene.goal ?? "Have a natural, confident conversation."}
+
+Return ONLY this JSON shape:
+{
+  "systemPrompt": "...",
+  "firstMessage": "..."
+}`,
+        },
+      ],
+    });
+
+    const parsed = JSON.parse(completion.choices[0].message.content ?? "{}");
+    const systemPrompt =
+      typeof parsed.systemPrompt === "string" ? parsed.systemPrompt.trim() : "";
+    const firstMessage =
+      typeof parsed.firstMessage === "string" && parsed.firstMessage.trim()
+        ? parsed.firstMessage.trim()
+        : undefined;
+
+    if (!systemPrompt) return null;
+    return { systemPrompt, firstMessage };
+  } catch (err) {
+    console.error("Scene prompt build failed (using static fallback):", err);
+    return null;
+  }
+}
+
 function buildSystemPrompt(
   topicLabel?: string,
   newsContext?: NewsContext,
-  sceneContext?: SceneContext,
 ): string {
-  if (sceneContext) return buildScenePrompt(sceneContext);
   if (!topicLabel) return SMALL_TALK_PERSONA;
 
   const contextBlock = newsContext
@@ -272,11 +384,7 @@ Conversation instructions:
 const ASSISTANT_MODEL_PROVIDER = "anthropic";
 const ASSISTANT_MODEL = "claude-haiku-4-5-20251001";
 
-function buildAssistantOverrides(
-  topicLabel?: string,
-  newsContext?: NewsContext,
-  sceneContext?: SceneContext,
-): Record<string, unknown> {
+function buildOverrides(content: AssistantContent): Record<string, unknown> {
   const overrides: Record<string, unknown> = {
     maxDurationSeconds: 180,
     clientMessages: [
@@ -288,23 +396,48 @@ function buildAssistantOverrides(
     model: {
       provider: ASSISTANT_MODEL_PROVIDER,
       model: ASSISTANT_MODEL,
-      messages: [
-        { role: "system", content: buildSystemPrompt(topicLabel, newsContext, sceneContext) },
-      ],
+      messages: [{ role: "system", content: content.systemPrompt }],
     },
   };
 
-  if (sceneContext) {
-    // Deliberately generic — it has to read naturally whether the role is a
-    // hiring manager, a date, or a party guest. The system prompt (not this
-    // line) carries the actual role/scene framing.
-    overrides.firstMessage = "Hi there!";
-  } else if (topicLabel) {
-    const opener = newsContext?.short ?? topicLabel;
-    overrides.firstMessage = `Hey! I saw a topic about ${opener}. What do you think about it?`;
-  }
+  if (content.firstMessage) overrides.firstMessage = content.firstMessage;
 
   return overrides;
+}
+
+/**
+ * Resolve the assistant's system prompt + opening line for this call:
+ * - a default-scene preset (by slug) uses its pre-authored prompt — no Groq;
+ * - a user-defined scene is turned into a prompt by Groq (static template on
+ *   failure);
+ * - a news topic / generic small talk uses the persona template.
+ */
+async function resolveAssistantContent(
+  presetSlug?: string,
+  topicLabel?: string,
+  newsContext?: NewsContext,
+  sceneContext?: SceneContext,
+): Promise<AssistantContent> {
+  if (presetSlug) {
+    const preset = await fetchPresetAssistant(presetSlug);
+    if (preset) return preset;
+  }
+
+  if (sceneContext) {
+    const built = await buildSceneAssistant(sceneContext);
+    if (built) return built;
+    return { systemPrompt: buildScenePrompt(sceneContext), firstMessage: "Hi there!" };
+  }
+
+  const systemPrompt = buildSystemPrompt(topicLabel, newsContext);
+  if (topicLabel) {
+    const opener = newsContext?.short ?? topicLabel;
+    return {
+      systemPrompt,
+      firstMessage: `Hey! I saw a topic about ${opener}. What do you think about it?`,
+    };
+  }
+  return { systemPrompt };
 }
 
 export async function handleVapiSession(req: Request): Promise<Response> {
@@ -356,8 +489,18 @@ export async function handleVapiSession(req: Request): Promise<Response> {
       body?.sceneContext && typeof body.sceneContext === "object"
         ? (body.sceneContext as SceneContext)
         : undefined;
+    const presetSlug =
+      typeof body?.presetSlug === "string" && body.presetSlug.trim()
+        ? body.presetSlug.trim()
+        : undefined;
 
-    const overrides = buildAssistantOverrides(topicLabel, newsContext, sceneContext);
+    const content = await resolveAssistantContent(
+      presetSlug,
+      topicLabel,
+      newsContext,
+      sceneContext,
+    );
+    const overrides = buildOverrides(content);
 
     // Stamp the call with its owner so the end-of-call report can be
     // attributed, and point Vapi's server messages at the webhook receiver.

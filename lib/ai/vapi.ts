@@ -40,16 +40,17 @@ export function createVapiClient(token: string): VapiClient {
 }
 
 /**
- * Ask the backend for this call's Vapi config. With a `topicLabel` the server
- * steers the AI toward that headline (system prompt + an opening line);
- * with a `sceneContext` it steers toward a user-defined goal/role/scene
- * instead (taking priority over the headline); without either it composes a
- * generic open small-talk partner.
+ * Ask the backend for this call's Vapi config. A `presetSlug` selects a
+ * pre-authored default-scene prompt server-side (highest priority, no Groq);
+ * a `topicLabel` steers the AI toward that headline; a `sceneContext` steers
+ * toward a user-defined goal/role/scene (turned into a prompt by Groq); with
+ * none of them the server composes a generic open small-talk partner.
  */
 export async function fetchVapiSession(
   topicLabel?: string,
   newsContext?: NewsTopic,
-  sceneContext?: SceneContext
+  sceneContext?: SceneContext,
+  presetSlug?: string
 ): Promise<VapiSession> {
   const baseUrl = getBackendBaseUrl();
 
@@ -65,7 +66,7 @@ export async function fetchVapiSession(
       "Content-Type": "application/json",
       ...(await getFunctionsAuthHeaders()),
     },
-    body: JSON.stringify({ topicLabel, newsContext, sceneContext }),
+    body: JSON.stringify({ topicLabel, newsContext, sceneContext, presetSlug }),
   });
 
   if (!response.ok) {

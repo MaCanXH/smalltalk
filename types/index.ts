@@ -77,6 +77,12 @@ export interface SceneContext {
   goal: string;
   role: string;
   scene: string;
+  /**
+   * The AI partner's personality/tone. Optional — when the user doesn't
+   * describe one, it defaults to friendly and supportive (applied by the
+   * scene composer and, as a safety net, server-side).
+   */
+  personality?: string;
 }
 
 export interface ScoreIndex {

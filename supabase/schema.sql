@@ -87,6 +87,31 @@ create table if not exists public.hot_topics_cache (
   created_at timestamptz not null default now()
 );
 
+-- ---------- scene_presets (default practice scenes) ----------
+-- The pool of pre-authored scenarios the Scene tab draws a *random* default
+-- from (Quick Talk, the Talk tab's no-topic start, and the "Last scene"
+-- fallback before the user has ever defined their own). Read only by the api
+-- Edge Function (service role): GET /api/scene/default returns one random
+-- active row's display fields (slug/label/emoji/scene), and /api/vapi/session
+-- looks up `prompt` + `first_message` by slug to build the assistant directly
+-- — no Groq at runtime for defaults. Clients never read this table directly.
+-- `prompt` is a COMPLETE, drop-in assistant system prompt (character +
+-- personality + style + safety); `first_message` is the AI's opening line.
+-- Seed with supabase/scene_presets_seed.sql.
+create table if not exists public.scene_presets (
+  id            uuid primary key default gen_random_uuid(),
+  slug          text unique not null,
+  emoji         text,
+  label         text not null,
+  scene         text not null,
+  prompt        text not null,
+  first_message text not null,
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
+);
+create index if not exists scene_presets_active_idx
+  on public.scene_presets (active);
+
 -- ============================================================
 -- Row Level Security — each user only sees/writes their own rows
 -- ============================================================
@@ -101,6 +126,10 @@ alter table public.vapi_call_grants enable row level security;
 -- hot_topics_cache: RLS on with NO policies — service role only; clients get
 -- topics through the Edge Function, never from this table directly.
 alter table public.hot_topics_cache enable row level security;
+
+-- scene_presets: RLS on with NO policies — service role only; clients get a
+-- random default scene through the Edge Function, never from this table.
+alter table public.scene_presets enable row level security;
 
 -- call_reports: users may READ their own reports (canonical transcripts);
 -- writes stay service-role-only (no insert/update policy).

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -9,59 +9,42 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import {
-  AudioModule,
-  RecordingPresets,
-  setAudioModeAsync,
-  useAudioRecorder,
-} from "expo-audio";
-import { useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSharedValue } from "react-native-reanimated";
 
-import { Orb, type OrbMode } from "../../components/Orb";
+import { Orb } from "../../components/Orb";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppData } from "../../context/AppDataContext";
 import { composeSceneFromDescription } from "../../lib/ai/sceneCompose";
-import { transcribeAudio } from "../../lib/ai/transcribe";
 import { FALLBACK_TOPICS, fetchHotTopics, type HotTopic } from "../../lib/news/hotTopics";
 import {
   DEFAULT_LAST_SCENE,
+  fetchDefaultScene,
   SCENARIO_PRESETS,
+  sceneStartParams,
   shortenSceneLabel,
   type ScenarioPreset,
 } from "../../lib/scenarios";
 import { cardShadow, radius, spacing, typography } from "../../styles/global";
 import type { SceneContext } from "../../types";
 
-type VoiceMode = "idle" | "listening" | "thinking";
-
-function describeError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error.trim();
-  return "Something went wrong. Try again, or type your scene instead.";
-}
-
 export default function SceneScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { sessions } = useAppData();
+  const params = useLocalSearchParams<{ compose?: string }>();
 
   const [manualMode, setManualMode] = useState(false);
   const [description, setDescription] = useState("");
   const [composing, setComposing] = useState(false);
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>("idle");
-  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [trending, setTrending] = useState<HotTopic | null>(null);
 
   const amplitude = useSharedValue(0);
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
+  // Returning from the voice page's "type instead" opens the typed input.
   useEffect(() => {
-    amplitude.value =
-      voiceMode === "listening"
-        ? withRepeat(withTiming(1, { duration: 550 }), -1, true)
-        : withTiming(0, { duration: 200 });
-  }, [voiceMode, amplitude]);
+    if (params.compose === "type") setManualMode(true);
+  }, [params.compose]);
 
   useEffect(() => {
     let active = true;
@@ -77,15 +60,24 @@ export default function SceneScreen() {
     };
   }, []);
 
-  const lastScene = useMemo(
-    () => sessions.find((s) => s.sceneContext)?.sceneContext ?? DEFAULT_LAST_SCENE,
+  // The user's most recent self-defined scene, if any — its absence means
+  // "Last scene" falls back to a random default.
+  const userLastScene = useMemo(
+    () => sessions.find((s) => s.sceneContext)?.sceneContext,
     [sessions]
   );
+  const lastSceneLabel = shortenSceneLabel((userLastScene ?? DEFAULT_LAST_SCENE).scene);
+  const startingRef = useRef(false);
 
   const openSetup = (scene: SceneContext) => {
     router.push({
       pathname: "/scene/setup",
-      params: { goal: scene.goal, role: scene.role, scene: scene.scene },
+      params: {
+        goal: scene.goal,
+        role: scene.role,
+        scene: scene.scene,
+        personality: scene.personality ?? "",
+      },
     });
   };
 
@@ -99,8 +91,22 @@ export default function SceneScreen() {
     });
   };
 
-  const startQuickTalk = () => {
-    router.push({ pathname: "/session/active", params: {} });
+  // Quick Talk and the "Last scene" fallback both start a random default scene
+  // (a pre-authored preset, or a local scene if the backend is unreachable).
+  const startDefaultScene = async () => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    try {
+      const scene = await fetchDefaultScene();
+      router.push({ pathname: "/session/active", params: sceneStartParams(scene) });
+    } finally {
+      startingRef.current = false;
+    }
+  };
+
+  const startLastScene = () => {
+    if (userLastScene) startWithScene(userLastScene);
+    else void startDefaultScene();
   };
 
   const startTrending = () => {
@@ -124,60 +130,9 @@ export default function SceneScreen() {
     }
   };
 
-  const onOrbPress = async () => {
-    if (voiceMode === "thinking") return;
-
-    if (voiceMode === "listening") {
-      setVoiceMode("thinking");
-      try {
-        await recorder.stop();
-        const uri = recorder.uri;
-        if (!uri) throw new Error("No recording captured. Try again.");
-        const text = await transcribeAudio(uri);
-        if (!text.trim()) {
-          throw new Error("Didn't catch that — try again, or type instead.");
-        }
-        openSetup(await composeSceneFromDescription(text));
-        setVoiceMode("idle");
-      } catch (err) {
-        setVoiceError(describeError(err));
-        setVoiceMode("idle");
-      }
-      return;
-    }
-
-    setVoiceError(null);
-    try {
-      const perm = await AudioModule.requestRecordingPermissionsAsync();
-      if (!perm.granted) {
-        setVoiceError(
-          "Microphone access is off. Enable it for Small Talk in system settings."
-        );
-        return;
-      }
-      await setAudioModeAsync({ allowsRecording: true });
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-      setVoiceMode("listening");
-    } catch (err) {
-      setVoiceError(describeError(err));
-      setVoiceMode("idle");
-    }
+  const onOrbPress = () => {
+    router.push("/scene/listen");
   };
-
-  const orbMode: OrbMode = voiceMode;
-  const captionTitle =
-    voiceMode === "listening"
-      ? "Listening…"
-      : voiceMode === "thinking"
-        ? "Turning that into a scene…"
-        : "Tap and just say it";
-  const captionSub =
-    voiceMode === "listening"
-      ? "Tap again when you're done"
-      : voiceMode === "thinking"
-        ? undefined
-        : "We'll turn it into a scene for you";
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: colors.bg }]} edges={["top"]}>
@@ -233,28 +188,21 @@ export default function SceneScreen() {
           </>
         ) : (
           <View style={styles.orbWrap}>
-            <Orb mode={orbMode} amplitude={amplitude} onPress={onOrbPress} size={190} />
+            <Orb mode="idle" amplitude={amplitude} onPress={onOrbPress} size={190} />
             <Text style={[typography.h3, { color: colors.text, marginTop: spacing.lg }]}>
-              {captionTitle}
+              Tap and just say it
             </Text>
-            {captionSub && (
-              <Text style={[styles.caption, { color: colors.textDim }]}>{captionSub}</Text>
-            )}
-            {voiceMode === "idle" && (
-              <>
-                <Text style={[styles.example, { color: colors.textFaint }]}>
-                  {'e.g. "I’m waiting in line at a coffee shop and want to talk with the person next to me."'}
-                </Text>
-                <Pressable onPress={() => setManualMode(true)} hitSlop={8}>
-                  <Text style={[styles.linkText, { color: colors.accent }]}>
-                    Prefer to type instead?
-                  </Text>
-                </Pressable>
-              </>
-            )}
-            {voiceError && (
-              <Text style={[styles.errorText, { color: colors.danger }]}>{voiceError}</Text>
-            )}
+            <Text style={[styles.caption, { color: colors.textDim }]}>
+              {"We'll turn it into a scene for you"}
+            </Text>
+            <Text style={[styles.example, { color: colors.textFaint }]}>
+              {'e.g. "I’m waiting in line at a coffee shop and want to talk with the person next to me."'}
+            </Text>
+            <Pressable onPress={() => setManualMode(true)} hitSlop={8}>
+              <Text style={[styles.linkText, { color: colors.accent }]}>
+                Prefer to type instead?
+              </Text>
+            </Pressable>
           </View>
         )}
 
@@ -288,7 +236,7 @@ export default function SceneScreen() {
         <Text style={[styles.chipLabel, { color: colors.textFaint }]}>Shortcuts</Text>
         <View style={styles.quickRow}>
           <Pressable
-            onPress={startQuickTalk}
+            onPress={startDefaultScene}
             style={[styles.quickBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
           >
             <Ionicons name="flash" size={16} color={colors.accent} />
@@ -300,7 +248,7 @@ export default function SceneScreen() {
             </View>
           </Pressable>
           <Pressable
-            onPress={() => startWithScene(lastScene)}
+            onPress={startLastScene}
             style={[styles.quickBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
           >
             <Ionicons name="play-skip-forward" size={16} color={colors.accent} />
@@ -310,7 +258,7 @@ export default function SceneScreen() {
                 style={[styles.quickSub, { color: colors.textFaint }]}
                 numberOfLines={1}
               >
-                {shortenSceneLabel(lastScene.scene)}
+                {lastSceneLabel}
               </Text>
             </View>
           </Pressable>
@@ -345,13 +293,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     fontSize: 12,
     fontStyle: "italic",
-    textAlign: "center",
-    paddingHorizontal: spacing.lg,
-  },
-  errorText: {
-    marginTop: spacing.md,
-    fontSize: 12.5,
-    fontWeight: "600",
     textAlign: "center",
     paddingHorizontal: spacing.lg,
   },

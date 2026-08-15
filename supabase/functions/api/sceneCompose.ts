@@ -35,10 +35,11 @@ Given the learner's description, infer:
 - "goal": one short sentence — what the learner should practice or achieve in this conversation.
 - "role": one short sentence describing who the AI should play (the other person in the scene), written so it can be dropped directly into an AI's system prompt (e.g. "A friendly regular waiting in the same line.").
 - "scene": one short sentence setting the scene/context (where, when, what's happening), grounded in the learner's own words.
+- "personality": one short phrase describing the AI partner's personality/tone (e.g. "Warm and curious."). Only use a personality the learner actually implied or asked for. If they did not describe one, use exactly "Friendly and supportive.".
 
 Rules:
 - Keep every field under 25 words.
-- Base goal/role/scene on what the learner actually said — do not invent unrelated details.
+- Base goal/role/scene/personality on what the learner actually said — do not invent unrelated details.
 - If the description is vague, make a reasonable, low-stakes assumption.
 - Write in plain, natural English.`,
         },
@@ -50,7 +51,8 @@ Return ONLY this JSON shape:
 {
   "goal": "...",
   "role": "...",
-  "scene": "..."
+  "scene": "...",
+  "personality": "..."
 }`,
         },
       ],
@@ -62,12 +64,16 @@ Return ONLY this JSON shape:
     const goal = typeof parsed.goal === "string" ? parsed.goal.trim() : "";
     const role = typeof parsed.role === "string" ? parsed.role.trim() : "";
     const scene = typeof parsed.scene === "string" ? parsed.scene.trim() : "";
+    const personality =
+      typeof parsed.personality === "string" && parsed.personality.trim()
+        ? parsed.personality.trim()
+        : "Friendly and supportive.";
 
     if (!goal || !role || !scene) {
       throw new Error("Incomplete scene composition.");
     }
 
-    return Response.json({ goal, role, scene });
+    return Response.json({ goal, role, scene, personality });
   } catch (err) {
     console.error(err);
     return Response.json({ error: "Scene composition failed" }, { status: 500 });

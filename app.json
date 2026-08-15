@@ -13,6 +13,7 @@
       "bundleIdentifier": "com.macanxhs.smalltalk",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Allow Small Talk to use the microphone for live AI voice practice.",
+        "NSSpeechRecognitionUsageDescription": "Allow Small Talk to transcribe your voice so you can describe a practice scene by speaking.",
         "UIBackgroundModes": ["voip"]
       }
     },
@@ -66,6 +67,13 @@
         "expo-audio",
         {
           "microphonePermission": "Allow Small Talk to use the microphone so the orb can react to your voice while you practise."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Small Talk to use the microphone so you can describe a practice scene by speaking.",
+          "speechRecognitionPermission": "Allow Small Talk to transcribe your voice so you can describe a practice scene by speaking."
         }
       ],
       "@config-plugins/react-native-webrtc",

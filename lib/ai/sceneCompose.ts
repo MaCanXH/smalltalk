@@ -39,7 +39,15 @@ export async function composeSceneFromDescription(text: string): Promise<SceneCo
       throw new Error("Scene composition endpoint returned invalid data.");
     }
 
-    return { goal: json.goal, role: json.role, scene: json.scene };
+    return {
+      goal: json.goal,
+      role: json.role,
+      scene: json.scene,
+      personality:
+        typeof json.personality === "string" && json.personality.trim()
+          ? json.personality.trim()
+          : "Friendly and supportive.",
+    };
   } catch (error) {
     console.warn("Scene composition failed. Falling back to local template.", error);
     return composeSceneFromText(trimmed);

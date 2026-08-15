@@ -62,7 +62,12 @@ export default function ActiveSession() {
     title?: string;
     newsContext?: string;
     sceneContext?: string;
+    presetSlug?: string;
   }>();
+  const presetSlug = useMemo(() => {
+    const raw = typeof params.presetSlug === "string" ? params.presetSlug.trim() : "";
+    return raw.length > 0 ? raw : undefined;
+  }, [params.presetSlug]);
   const title = useMemo(() => {
     const raw = typeof params.title === "string" ? params.title.trim() : "";
     return raw.length > 0 ? raw : null;
@@ -95,7 +100,7 @@ export default function ActiveSession() {
   }, [params.sceneContext]);
 
   const headerLabel = newsContext?.short ?? title ?? "Open chat";
-  const headerEmoji = sceneContext ? "🎭" : title ? "📰" : "💬";
+  const headerEmoji = sceneContext || presetSlug ? "🎭" : title ? "📰" : "💬";
 
   const [mode, setMode] = useState<SessionMode>("idle");
   const [remaining, setRemaining] = useState(SESSION_SECONDS);
@@ -295,7 +300,12 @@ export default function ActiveSession() {
         // The Vapi credentials and per-call overrides are issued by the
         // backend Edge Function (JWT-gated); nothing Vapi-related ships in
         // the bundle or in client env vars.
-        const session = await fetchVapiSession(title ?? undefined, newsContext, sceneContext);
+        const session = await fetchVapiSession(
+          title ?? undefined,
+          newsContext,
+          sceneContext,
+          presetSlug,
+        );
         if (!active || finishedRef.current || finishScheduledRef.current) return;
 
         const client = createVapiClient(session.token);
@@ -455,6 +465,7 @@ export default function ActiveSession() {
     title,
     newsContext,
     sceneContext,
+    presetSlug,
   ]);
 
   // countdown

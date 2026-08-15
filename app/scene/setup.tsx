@@ -68,18 +68,26 @@ function SetupCard({ icon, title, value, onChange, lines = 2 }: SetupCardProps) 
 export default function SceneSetupScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const params = useLocalSearchParams<{ goal?: string; role?: string; scene?: string }>();
+  const params = useLocalSearchParams<{
+    goal?: string;
+    role?: string;
+    scene?: string;
+    personality?: string;
+  }>();
 
   const [goal, setGoal] = useState(params.goal ?? "");
   const [role, setRole] = useState(params.role ?? "");
   const [scene, setScene] = useState(params.scene ?? "");
+  // Carried through from the composer but not shown as an editable card;
+  // defaults to friendly/supportive when the scene didn't specify one.
+  const personality = params.personality?.trim() || "Friendly and supportive.";
 
   const startPractice = () => {
     router.push({
       pathname: "/session/active",
       params: {
         title: shortenSceneLabel(scene),
-        sceneContext: JSON.stringify({ goal, role, scene }),
+        sceneContext: JSON.stringify({ goal, role, scene, personality }),
       },
     });
   };

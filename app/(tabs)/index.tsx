@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -16,7 +16,7 @@ import { Orb } from "../../components/Orb";
 import { useTheme } from "../../context/ThemeContext";
 import { useAppData } from "../../context/AppDataContext";
 import { FALLBACK_TOPICS, fetchHotTopics, type HotTopic } from "../../lib/news/hotTopics";
-import { SCENARIO_PRESETS, shortenSceneLabel } from "../../lib/scenarios";
+import { fetchDefaultScene, sceneStartParams, shortenSceneLabel } from "../../lib/scenarios";
 import { cardShadow, spacing, radius, typography } from "../../styles/global";
 import type { SceneContext } from "../../types";
 
@@ -62,16 +62,30 @@ export default function HomeScreen() {
     setSelectedId((prev) => (prev === id ? null : id));
   };
 
+  const startingRef = useRef(false);
+
+  // A random default scene (pre-authored preset, or a local scene offline) —
+  // the same mechanism the Scene tab's Quick Talk uses.
+  const startDefaultScene = async () => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    try {
+      const scene = await fetchDefaultScene();
+      router.push({ pathname: "/session/active", params: sceneStartParams(scene) });
+    } finally {
+      startingRef.current = false;
+    }
+  };
+
   const start = () => {
-    router.push({
-      pathname: "/session/active",
-      params: selected
-        ? {
-            title: selected.full,
-            newsContext: JSON.stringify(selected),
-          }
-        : {},
-    });
+    if (selected) {
+      router.push({
+        pathname: "/session/active",
+        params: { title: selected.full, newsContext: JSON.stringify(selected) },
+      });
+    } else {
+      void startDefaultScene();
+    }
   };
 
   const startWithScene = (scene: SceneContext) => {
@@ -84,17 +98,12 @@ export default function HomeScreen() {
     });
   };
 
-  const startRandomScene = () => {
-    const preset = SCENARIO_PRESETS[Math.floor(Math.random() * SCENARIO_PRESETS.length)];
-    startWithScene({ goal: preset.goal, role: preset.role, scene: preset.scene });
-  };
-
   const startLastScene = () => {
     const last = sessions.find((s) => s.sceneContext)?.sceneContext;
     if (last) {
       startWithScene(last);
     } else {
-      startRandomScene();
+      void startDefaultScene();
     }
   };
 
@@ -182,7 +191,7 @@ export default function HomeScreen() {
           </Text>
           <View style={styles.sceneRow}>
             <Pressable
-              onPress={startRandomScene}
+              onPress={startDefaultScene}
               style={[styles.sceneBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
               <Ionicons name="sparkles" size={16} color={colors.accent} />
